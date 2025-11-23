@@ -1,0 +1,31 @@
+You are using the default value for `max_pairs`, which may be too small and thus lead to inaccurate estimates for your model's u-parameters. Consider increasing to 1e8 or 1e9, which will result in more accurate estimates, but with a longer run time.
+----- Estimating u probabilities using random sampling -----
+u probability not trained for name - Exact match (comparison vector value: 2). This usually means the comparison level was never observed in the training data.
+u probability not trained for name - Levenshtein <= 2 (comparison vector value: 1). This usually means the comparison level was never observed in the training data.
+
+Estimated u probabilities using random sampling
+
+Your model is fully trained. All comparisons have at least one estimate for their m and u values
+Blocking time: 0.00 seconds
+Predict time: 0.02 seconds
+Completed iteration 1, num edges remaining to process: 0
+Creating dummy data...
+Initializing Engine...
+Ingesting data...
+Ingested 5 rows.
+Profiling data...
+{'total_rows': 5, 'columns': [{'column': 'id', 'null_percentage': 0.0, 'unique_count': 5}, {'column': 'name', 'null_percentage': 0.0, 'unique_count': 5}, {'column': 'city', 'null_percentage': 0.0, 'unique_count': 2}]}
+Configuring settings...
+Running resolution...
+Predictions head:
+Empty DataFrame
+Columns: [match_weight, match_probability, id_l, id_r, name_l, name_r, gamma_name, city_l, city_r, gamma_city]
+Index: []
+Clustering...
+Clusters:
+   cluster_id  id                 name           city
+0           1   1           JMAN Group         London
+1           2   2  J.M.A.N. Consulting         London
+2           3   3               Google  Mountain View
+3           4   4        Alphabet Inc.  Mountain View
+4           5   5       JMAN Group Ltd         London

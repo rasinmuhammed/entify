@@ -1,0 +1,6 @@
+splink
+duckdb
+pandas
+fastapi
+uvicorn
+python-multipart
