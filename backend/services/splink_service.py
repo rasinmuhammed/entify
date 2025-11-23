@@ -99,6 +99,12 @@ class SplinkService:
             row_count = self.engine.ingest_data(temp_csv_path, table_name)
             print(f"✅ Ingested {row_count} rows")
             
+            # Ensure no default blocking rules are applied
+            # If the client did not provide any blocking rules, explicitly set empty lists
+            if not settings.get("blocking_rules_to_generate_predictions"):
+                settings["blocking_rules_to_generate_predictions"] = []
+            # Also clear any generic blocking_rules to avoid Splink auto‑generating based on column names
+            settings["blocking_rules"] = []
             # Run Splink resolution
             predictions_df = self.engine.run_resolution(table_name, settings)
             

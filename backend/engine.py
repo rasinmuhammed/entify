@@ -135,7 +135,11 @@ class EntityResolutionEngine:
         
         if blocking_rules:
             settings["blocking_rules_to_generate_predictions"] = blocking_rules
-            
+            settings["blocking_rules"] = blocking_rules
+        else:
+            settings["blocking_rules_to_generate_predictions"] = []
+            settings["blocking_rules"] = []
+        
         if comparisons:
             settings["comparisons"] = comparisons
             
