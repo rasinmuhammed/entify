@@ -9,7 +9,8 @@ import {
     Settings2,
     FileText,
     LogOut,
-    Sparkles
+    Sparkles,
+    BarChart3
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -28,10 +29,11 @@ export function AppSidebar({ className }: SidebarProps) {
             href: "/",
             color: "text-sky-500",
         },
+
         {
-            label: "Data Explorer",
+            label: "Data Vault",
             icon: Database,
-            href: "/data",
+            href: "/vault",
             color: "text-violet-500",
         },
         {
@@ -45,6 +47,12 @@ export function AppSidebar({ className }: SidebarProps) {
             icon: Settings2,
             href: "/config",
             color: "text-pink-700",
+        },
+        {
+            label: "Analytics",
+            icon: BarChart3,
+            href: "/dashboard/analytics",
+            color: "text-blue-500",
         },
         {
             label: "Audit Reports",

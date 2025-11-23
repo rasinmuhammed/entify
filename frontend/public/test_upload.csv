@@ -1,0 +1,6 @@
+id,first_name,surname,city,email
+1,John,Smith,London,john.smith@example.com
+2,J.,Smith,London,jsmith@test.com
+3,Jane,Doe,New York,jane@example.com
+4,John,Smyth,London,john.smyth@example.com
+5,Bob,Jones,Paris,bob@jones.com

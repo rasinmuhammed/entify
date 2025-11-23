@@ -3,8 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Providers from "@/components/Providers";
 import { ClerkProvider, SignedIn, SignedOut, RedirectToSignIn } from "@clerk/nextjs";
-import { AppSidebar } from "@/components/AppSidebar";
-import { Navbar } from "@/components/Navbar";
+import { TopNav } from "@/components/TopNav";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -37,12 +36,9 @@ export default function RootLayout({
               </div>
             </SignedOut>
             <SignedIn>
-              <div className="h-full relative">
-                <div className="hidden h-full md:flex md:w-72 md:flex-col md:fixed md:inset-y-0 z-[80] bg-gray-900">
-                  <AppSidebar />
-                </div>
-                <main className="md:pl-72 pb-10">
-                  <Navbar />
+              <div className="min-h-screen flex flex-col bg-background">
+                <TopNav userName="Muhammed Rasin" userEmail="rasin@entify.app" />
+                <main className="flex-1">
                   {children}
                 </main>
               </div>

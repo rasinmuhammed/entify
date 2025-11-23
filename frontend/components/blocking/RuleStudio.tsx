@@ -36,15 +36,42 @@ export default function RuleStudio() {
         )
     }
 
+    const { data: previewData } = useQuery({
+        queryKey: ['preview', activeDataset?.name],
+        queryFn: async () => {
+            if (!activeDataset?.name) return []
+            const res = await axios.get(`http://127.0.0.1:8000/preview/${activeDataset.name}`)
+            return res.data.data
+        },
+        enabled: !!activeDataset?.name
+    })
+
     const handleRunMatch = async () => {
         setIsRunning(true)
         const sqlRules = compileAllRules(rules)
-        console.log("Generated SQL Rules:", sqlRules)
 
-        // Here we would call the API
-        // await axios.post('/run-match', { blocking_rules: sqlRules ... })
+        try {
+            // Default settings for now
+            const settings = {
+                link_type: "dedupe_only",
+                unique_id_column_name: "unique_id", // Assuming 'unique_id' exists or user maps it. TODO: Add mapping
+                threshold: 0.5
+            }
 
-        setTimeout(() => setIsRunning(false), 2000)
+            await axios.post('http://127.0.0.1:8000/run-match', {
+                table_name: activeDataset?.name,
+                settings: settings,
+                blocking_rules: rules
+            })
+
+            // Show success or redirect? For now just stop loading
+            alert("Match job started!")
+        } catch (e) {
+            console.error(e)
+            alert("Failed to start match job")
+        } finally {
+            setIsRunning(false)
+        }
     }
 
     return (
@@ -70,6 +97,31 @@ export default function RuleStudio() {
                     </Button>
                 </div>
             </div>
+
+            {/* Data Preview */}
+            {previewData && previewData.length > 0 && (
+                <GlassCard className="p-4 overflow-x-auto">
+                    <h3 className="text-sm font-medium text-muted-foreground mb-3">Data Preview (First 5 rows)</h3>
+                    <table className="w-full text-xs text-left">
+                        <thead>
+                            <tr className="border-b border-white/10">
+                                {Object.keys(previewData[0]).map(key => (
+                                    <th key={key} className="py-2 px-3 font-medium text-purple-300">{key}</th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {previewData.map((row: any, i: number) => (
+                                <tr key={i} className="border-b border-white/5 hover:bg-white/5">
+                                    {Object.values(row).map((val: any, j) => (
+                                        <td key={j} className="py-2 px-3 text-muted-foreground">{String(val)}</td>
+                                    ))}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </GlassCard>
+            )}
 
             {/* Help Guide */}
             <GlassCard className="bg-blue-500/5 border-blue-500/20 p-4">
