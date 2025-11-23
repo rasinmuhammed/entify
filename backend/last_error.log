@@ -1,0 +1,138 @@
+Traceback (most recent call last):
+  File "/Users/muhammedrasin/entify/venv/lib/python3.12/site-packages/splink/internals/database_api.py", line 64, in _log_and_run_sql_execution
+    return self._execute_sql_against_backend(final_sql)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/muhammedrasin/entify/venv/lib/python3.12/site-packages/splink/internals/duckdb/database_api.py", line 98, in _execute_sql_against_backend
+    return self._con.sql(final_sql)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+_duckdb.CatalogException: Catalog Error: Scalar Function with name jaccard_similarity does not exist!
+Did you mean "jaccard"?
+
+LINE 28: CASE WHEN jaccard_similarity("affil1_l", "affil1_r") >= 0.5 THEN 1...
+                   ^
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/muhammedrasin/entify/backend/services/splink_service.py", line 103, in process_entity_resolution
+    predictions_df = self.engine.run_resolution(table_name, settings)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/muhammedrasin/entify/backend/engine.py", line 170, in run_resolution
+    self.predictions = self.linker.inference.predict(threshold_match_probability=0.5)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/muhammedrasin/entify/venv/lib/python3.12/site-packages/splink/internals/linker_components/inference.py", line 282, in predict
+    predictions = self._linker._db_api.sql_pipeline_to_splink_dataframe(pipeline)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/muhammedrasin/entify/venv/lib/python3.12/site-packages/splink/internals/database_api.py", line 206, in sql_pipeline_to_splink_dataframe
+    return self.sql_to_splink_dataframe_checking_cache(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/muhammedrasin/entify/venv/lib/python3.12/site-packages/splink/internals/database_api.py", line 177, in sql_to_splink_dataframe_checking_cache
+    splink_dataframe = self._sql_to_splink_dataframe(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/muhammedrasin/entify/venv/lib/python3.12/site-packages/splink/internals/database_api.py", line 94, in _sql_to_splink_dataframe
+    spark_df = self._log_and_run_sql_execution(sql, templated_name, physical_name)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/muhammedrasin/entify/venv/lib/python3.12/site-packages/splink/internals/database_api.py", line 76, in _log_and_run_sql_execution
+    raise SplinkException(
+splink.internals.exceptions.SplinkException: Error executing the following sql for table `__splink__df_predict`(__splink__df_predict_d02782c9b):
+CREATE TABLE __splink__df_predict_d02782c9b AS
+WITH __splink__blocked_id_pairs AS (
+  SELECT
+    *
+  FROM __splink__blocked_id_pairs_f7fa0c7f4
+), __splink__df_concat_with_tf AS (
+  SELECT
+    *
+  FROM __splink__df_concat_with_tf_bc891a8a5
+), blocked_with_cols AS (
+  SELECT
+    "l"."id1" AS "id1_l",
+    "r"."id1" AS "id1_r",
+    "l"."affil1" AS "affil1_l",
+    "r"."affil1" AS "affil1_r",
+    b.match_key
+  FROM __splink__df_concat_with_tf AS l
+  INNER JOIN __splink__blocked_id_pairs AS b
+    ON l."id1" = b.join_key_l
+  INNER JOIN __splink__df_concat_with_tf AS r
+    ON r."id1" = b.join_key_r
+), __splink__df_comparison_vectors AS (
+  SELECT
+    "id1_l",
+    "id1_r",
+    CASE WHEN "id1_l" = "id1_r" THEN 1 ELSE 0 END AS gamma_id1,
+    "affil1_l",
+    "affil1_r",
+    CASE WHEN JACCARD_SIMILARITY("affil1_l", "affil1_r") >= 0.5 THEN 1 ELSE 0 END AS gamma_affil1
+  FROM blocked_with_cols
+), __splink__df_match_weight_parts AS (
+  SELECT
+    "id1_l",
+    "id1_r",
+    gamma_id1,
+    CASE
+      WHEN gamma_id1 = 1
+      THEN CAST(377.2631578947368 AS DOUBLE)
+      WHEN gamma_id1 = 0
+      THEN CAST(0.40624999999999967 AS DOUBLE)
+    END AS bf_id1,
+    "affil1_l",
+    "affil1_r",
+    gamma_affil1,
+    CASE
+      WHEN gamma_affil1 = 1
+      THEN CAST(107.78947368421053 AS DOUBLE)
+      WHEN gamma_affil1 = 0
+      THEN CAST(0.5624999999999996 AS DOUBLE)
+    END AS bf_affil1
+  FROM __splink__df_comparison_vectors
+)
+SELECT
+  LOG(
+    2,
+    LEAST(
+      GREATEST(CAST(0.00010001000100010001 AS DOUBLE) * bf_id1 * bf_affil1, 1e-300),
+      1e300
+    )
+  ) AS match_weight,
+  CASE
+    WHEN bf_id1 = CAST('infinity' AS DOUBLE) OR bf_affil1 = CAST('infinity' AS DOUBLE)
+    THEN 1.0
+    ELSE (
+      LEAST(
+        GREATEST(CAST(0.00010001000100010001 AS DOUBLE) * bf_id1 * bf_affil1, 1e-300),
+        1e300
+      )
+    ) / NULLIF(
+      (
+        1 + (
+          LEAST(
+            GREATEST(CAST(0.00010001000100010001 AS DOUBLE) * bf_id1 * bf_affil1, 1e-300),
+            1e300
+          )
+        )
+      ),
+      0
+    )
+  END AS match_probability,
+  "id1_l",
+  "id1_r",
+  gamma_id1,
+  "affil1_l",
+  "affil1_r",
+  gamma_affil1
+FROM __splink__df_match_weight_parts
+WHERE
+  LOG(
+    2,
+    LEAST(
+      GREATEST(CAST(0.00010001000100010001 AS DOUBLE) * bf_id1 * bf_affil1, 1e-300),
+      1e300
+    )
+  ) >= 0.0
+
+Error was: Catalog Error: Scalar Function with name jaccard_similarity does not exist!
+Did you mean "jaccard"?
+
+LINE 28: CASE WHEN jaccard_similarity("affil1_l", "affil1_r") >= 0.5 THEN 1...
+                   ^
