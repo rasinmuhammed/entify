@@ -12,6 +12,7 @@ export type ComparisonMethod =
     | 'date_diff'
     | 'numeric_diff'
     | 'contains'
+    | 'company_name'  // Intelligent company name matching
 
 export interface ComparisonConfig {
     column: string
@@ -128,6 +129,16 @@ export const COMPARISON_METHODS: ComparisonMethodDefinition[] = [
         example: '"123 Main St" contains "Main" → 1.0',
         requiresThreshold: false,
         splinkEquivalent: 'substring'
+    },
+    {
+        method: 'company_name',
+        label: 'Company Name (Smart)',
+        description: 'Multi-level intelligent matching for company/organization names',
+        icon: '🏢',
+        bestFor: ['Company names', 'Organization names', 'Business entities'],
+        example: '"Google LLC" vs "Google Incorporated" → 0.95',
+        requiresThreshold: false,
+        splinkEquivalent: 'custom_template'
     }
 ]
 
@@ -211,22 +222,39 @@ export function suggestWeight(columnName: string): number {
  * Generate Splink comparison configuration
  */
 export function generateSplinkComparison(config: ComparisonConfig): any {
+    // Special handling for company_name method - use template
+    if (config.method === 'company_name') {
+        const { generateCompanyNameComparison, getDefaultCompanyNameConfig } = require('./templates/CompanyNameComparison')
+        const companyConfig = getDefaultCompanyNameConfig(config.column)
+        return generateCompanyNameComparison(companyConfig)
+    }
+
+    // Standard methods - ALWAYS include null level + match + else
     const method = COMPARISON_METHODS.find(m => m.method === config.method)
+    const column = config.column
 
     return {
-        output_column_name: config.column,
+        output_column_name: column,
         comparison_levels: [
+            // Level 1: Null level (required by Splink)
+            {
+                sql_condition: `${column}_l IS NULL OR ${column}_r IS NULL`,
+                label_for_charts: "Null",
+                is_null_level: true
+            },
+            // Level 2: Actual comparison (match)
             {
                 sql_condition: generateComparisonSQL(config),
                 label_for_charts: method?.label || config.method,
-                m_probability: config.weight,
-                is_null_level: false
+                m_probability: config.weight || 0.9,
+                u_probability: 0.1
             },
+            // Level 3: Else (no match)
             {
                 sql_condition: "ELSE",
                 label_for_charts: "No match",
-                m_probability: 1 - config.weight,
-                is_null_level: false
+                m_probability: 1 - (config.weight || 0.9),
+                u_probability: 0.9
             }
         ]
     }

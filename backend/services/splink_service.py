@@ -99,12 +99,47 @@ class SplinkService:
             row_count = self.engine.ingest_data(temp_csv_path, table_name)
             print(f"✅ Ingested {row_count} rows")
             
-            # Ensure no default blocking rules are applied
-            # If the client did not provide any blocking rules, explicitly set empty lists
-            if not settings.get("blocking_rules_to_generate_predictions"):
+            # Ensure blocking rules are present; if none provided, use empty lists
+            if "blocking_rules_to_generate_predictions" not in settings:
                 settings["blocking_rules_to_generate_predictions"] = []
-            # Also clear any generic blocking_rules to avoid Splink auto‑generating based on column names
-            settings["blocking_rules"] = []
+            # Ensure blocking_rules key exists (Splink may auto-generate defaults otherwise)
+            if "blocking_rules" not in settings:
+                settings["blocking_rules"] = []
+            # Ensure comparisons key exists (Splink expects it)
+            if "comparisons" not in settings:
+                settings["comparisons"] = []
+            # Remove any unsupported 'blocking_rules' key (Splink expects only blocking_rules_to_generate_predictions)
+            # (No action needed now as we keep the empty list above)
+            # Ensure each comparison has at least two levels (match + else) to avoid Splink division by zero
+            if isinstance(settings.get("comparisons"), list):
+                for comp in settings["comparisons"]:
+                    levels = comp.get("comparison_levels", [])
+                    if len(levels) == 1:
+                        # Add an else level
+                        levels.append({
+                            "sql_condition": "1=1",
+                            "label_for_charts": "Else"
+                        })
+                        comp["comparison_levels"] = levels
+            # After ingest, fetch column names to validate blocking rules
+            col_info = self.engine.con.execute(f"PRAGMA table_info({table_name})").fetchdf()
+            existing_columns = set(col_info['name'])
+            import re
+            def rule_is_valid(rule: str) -> bool:
+                # Find column names referenced as l.column or r.column
+                cols = re.findall(r"[lr]\.([a-zA-Z_][a-zA-Z0-9_]*)", rule)
+                return all(col in existing_columns for col in cols)
+            # Filter blocking_rules_to_generate_predictions
+            if isinstance(settings.get("blocking_rules_to_generate_predictions"), list):
+                settings["blocking_rules_to_generate_predictions"] = [r for r in settings["blocking_rules_to_generate_predictions"] if rule_is_valid(r)]
+            # Filter blocking_rules (if present)
+            if isinstance(settings.get("blocking_rules"), list):
+                settings["blocking_rules"] = [r for r in settings["blocking_rules"] if rule_is_valid(r)]
+            
+            # Remove the blocking_rules key - Splink doesn't accept it, only blocking_rules_to_generate_predictions
+            if "blocking_rules" in settings:
+                del settings["blocking_rules"]
+            
             # Run Splink resolution
             predictions_df = self.engine.run_resolution(table_name, settings)
             

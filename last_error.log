@@ -1,0 +1,25 @@
+Traceback (most recent call last):
+  File "/Users/muhammedrasin/entify/backend/services/splink_service.py", line 115, in process_entity_resolution
+    predictions_df = self.engine.run_resolution(table_name, settings)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/muhammedrasin/entify/backend/engine.py", line 160, in run_resolution
+    self.linker = Linker(table_name, settings, db_api=db_api)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/lib/python3.11/site-packages/splink/internals/linker.py", line 160, in __init__
+    self._settings_obj = settings_creator.get_settings(
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/lib/python3.11/site-packages/splink/internals/settings_creator.py", line 95, in get_settings
+    creator_dict["comparisons"] = [
+                                  ^
+  File "/opt/homebrew/lib/python3.11/site-packages/splink/internals/settings_creator.py", line 96, in <listcomp>
+    comparison_creator.get_comparison(sql_dialect_str)
+  File "/opt/homebrew/lib/python3.11/site-packages/splink/internals/comparison_creator.py", line 132, in get_comparison
+    return Comparison(
+           ^^^^^^^^^^^
+  File "/opt/homebrew/lib/python3.11/site-packages/splink/internals/comparison.py", line 92, in __init__
+    default_m_values = _default_m_values(num_levels)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/lib/python3.11/site-packages/splink/internals/comparison_level.py", line 75, in _default_m_values
+    split_remainder = remainder / (num_levels - 1)
+                      ~~~~~~~~~~^~~~~~~~~~~~~~~~~~
+ZeroDivisionError: float division by zero

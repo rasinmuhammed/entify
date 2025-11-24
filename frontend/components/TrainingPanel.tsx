@@ -25,7 +25,7 @@ export function TrainingPanel({ onTrainingComplete }: TrainingPanelProps) {
         const steps = [
             "Initializing EM Algorithm...",
             "Estimating u-probabilities...",
-            "Blocking on 'first_name'...",
+            "Applying blocking rules...",
             "Iteration 1: Maximization...",
             "Iteration 1: Expectation...",
             "Iteration 2: Maximization...",

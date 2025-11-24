@@ -32,6 +32,26 @@ function detectColumnType(columnName: string): 'email' | 'name' | 'date' | 'loca
     return 'text'
 }
 
+/**
+ * Check if a column is likely an ID column (should NOT be used for blocking)
+ */
+function isIdColumn(columnName: string): boolean {
+    const lower = columnName.toLowerCase()
+    // Match common ID patterns
+    const idPatterns = [
+        /^id$/,           // exact "id"
+        /^.*_id$/,        // ends with _id (user_id, customer_id)
+        /^id_/,           // starts with id_ (id_num, id_code)
+        /^.*id$/,         // ends with id (userid, customerid)
+        /^pk$/,           // primary key
+        /^key$/,          // key
+        /^unique_id$/,    // unique_id
+        /^guid$/,         // guid
+        /^uuid$/,         // uuid
+    ]
+    return idPatterns.some(pattern => pattern.test(lower))
+}
+
 function getColumnIcon(type: string) {
     switch (type) {
         case 'email': return <Mail className="h-4 w-4" />
@@ -200,17 +220,26 @@ export function SimpleBlockingRuleBuilder({ columns, onRulesChange, initialRules
                     const type = detectColumnType(rule.column)
                     const matchTypes = getMatchTypes(type)
                     const selectedMatch = matchTypes.find(m => m.value === rule.matchType)
+                    const isId = isIdColumn(rule.column)
 
                     return (
-                        <Card key={rule.column} className={`transition-all ${rule.enabled ? 'border-primary shadow-md' : 'border-muted'}`}>
+                        <Card key={rule.column} className={`transition-all ${rule.enabled ? 'border-primary shadow-md' : 'border-muted'} ${isId ? 'border-yellow-500/50 bg-yellow-50/10' : ''}`}>
                             <CardHeader className="pb-3">
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-2">
                                         {getColumnIcon(type)}
                                         <div>
-                                            <CardTitle className="text-sm font-mono">{rule.column}</CardTitle>
+                                            <div className="flex items-center gap-2">
+                                                <CardTitle className="text-sm font-mono">{rule.column}</CardTitle>
+                                                {isId && (
+                                                    <Badge variant="outline" className="text-xs bg-yellow-500/10 border-yellow-500/50 text-yellow-700 dark:text-yellow-400">
+                                                        ⚠️ ID Column
+                                                    </Badge>
+                                                )}
+                                            </div>
                                             <CardDescription className="text-xs">
                                                 {type.charAt(0).toUpperCase() + type.slice(1)} column
+                                                {isId && <span className="text-yellow-600 ml-1">(Not recommended for blocking)</span>}
                                             </CardDescription>
                                         </div>
                                     </div>

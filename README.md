@@ -1,7 +1,7 @@
 # Entify
 
 **Entify** is a modern data cleaning and entity resolution platform built with Next.js (frontend) and FastAPI (backend). It leverages **DuckDB‑WASM** and **Splink** for scalable, privacy‑preserving record linkage, and uses **Supabase** for storage and authentication.
-
+⚠️ Development is in progress; features and APIs may change.
 ---
 
 ## ✨ Features

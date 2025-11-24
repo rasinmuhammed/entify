@@ -5,11 +5,10 @@ from engine import EntityResolutionEngine
 import pandas as pd
 import os
 
+
 # Expose the FastAPI app for uvicorn main:app
-try:
-    from api import app
-except ImportError:
-    pass
+from api import app
+
 def create_dummy_data():
     data = [
         {"id": 1, "name": "JMAN Group", "city": "London"},

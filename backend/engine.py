@@ -163,14 +163,33 @@ class EntityResolutionEngine:
         try:
             # Only run estimation if we have enough data
             count = self.con.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
-            if count > 50:
-                self.linker.training.estimate_u_using_random_sampling(max_pairs=1e6)
+            
+            # Check if using full comparison (no blocking)
+            blocking_rules = settings.get("blocking_rules_to_generate_predictions", [])
+            using_full_comparison = not blocking_rules or len(blocking_rules) == 0
+            
+            if using_full_comparison:
+                total_pairs = (count * (count - 1)) / 2
+                print(f"🔄 NO BLOCKING RULES - Full N×N comparison enabled")
+                print(f"   Dataset: {count:,} rows → {total_pairs:,.0f} potential pairs")
+                if count > 10000:
+                    print(f"   ⚠️  WARNING: Large dataset! This may be slow.")
             else:
-                print("⚠️ Skipping u-estimation: too few rows")
+                print(f"🔒 Using {len(blocking_rules)} blocking rule(s)")
+                for i, rule in enumerate(blocking_rules, 1):
+                    print(f"   Rule {i}: {rule}")
+            
+            if count > 50:
+                print(f"🧠 Training model using random sampling (max_pairs=1e6)...")
+                self.linker.training.estimate_u_using_random_sampling(max_pairs=1e6)
+                print(f"✅ Training complete")
+            else:
+                print(f"⚠️  Skipping u-estimation: too few rows ({count})")
         except Exception as e:
-            print(f"⚠️ Estimation failed (continuing with defaults): {e}")
+            print(f"⚠️  Estimation failed (continuing with defaults): {e}")
         
         # Predict
+        print(f"🔮 Running predictions...")
         self.predictions = self.linker.inference.predict(threshold_match_probability=0.5)
         
         return self.predictions.as_pandas_dataframe()

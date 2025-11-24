@@ -392,7 +392,25 @@ export default function ProjectPage() {
 
             // Normalize table name
             const tableName = activeDataset.name.replace(/[^a-zA-Z0-9_]/g, '_')
-            const result = await conn.query(`SELECT * FROM "${tableName}"`)
+
+            // Check if cleaned table exists, use it if available
+            let tableToUse = tableName
+            try {
+                const cleanedTableCheck = await conn.query(`
+                    SELECT count(*) as cnt FROM information_schema.tables 
+                    WHERE table_name = '${tableName}_cleaned'
+                `)
+                const cleanedExists = Number(cleanedTableCheck.toArray()[0]['cnt']) > 0
+                if (cleanedExists) {
+                    tableToUse = `${tableName}_cleaned`
+                    console.log(`✓ Using cleaned data from ${tableToUse}`)
+                }
+            } catch (e) {
+                // Cleaned table doesn't exist, use raw data
+                console.log(`Using raw data from ${tableName}`)
+            }
+
+            const result = await conn.query(`SELECT * FROM "${tableToUse}"`)
 
             // Convert BigInt to Number for JSON serialization
             const rows = result.toArray().map((r: any) => {
