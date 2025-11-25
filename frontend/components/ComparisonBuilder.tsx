@@ -14,13 +14,17 @@ interface ComparisonBuilderProps {
     onComparisonsChange: (comparisons: any[]) => void
     previewData?: any[]
     initialComparisons?: any[]
+    onGlobalSettingsChange?: (settings: any) => void
+    initialGlobalSettings?: any
 }
 
 export function ComparisonBuilder({
     columns,
     onComparisonsChange,
     previewData = [],
-    initialComparisons = []
+    initialComparisons = [],
+    onGlobalSettingsChange,
+    initialGlobalSettings
 }: ComparisonBuilderProps) {
     const [activeTab, setActiveTab] = useState('learn')
 
@@ -73,6 +77,8 @@ export function ComparisonBuilder({
                         columns={columns}
                         onConfigChange={handleConfigChange}
                         initialConfig={initialComparisons}
+                        onGlobalSettingsChange={onGlobalSettingsChange}
+                        initialGlobalSettings={initialGlobalSettings}
                     />
                 </TabsContent>
             </Tabs>

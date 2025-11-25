@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
@@ -14,7 +14,9 @@ import {
     COMPARISON_METHODS,
     getMethodsForColumnType,
     suggestMethod,
-    suggestWeight
+    suggestWeight,
+    EntityType,
+    getSmartConfigForType
 } from '@/lib/comparison/comparisonMethods'
 
 interface ComparisonLevel {
@@ -33,6 +35,8 @@ interface SimpleComparisonBuilderProps {
     columns: string[]
     onConfigChange: (config: ComparisonConfig[]) => void
     initialConfig?: ComparisonConfig[]
+    onGlobalSettingsChange?: (settings: any) => void
+    initialGlobalSettings?: any
 }
 
 function detectColumnType(columnName: string): 'email' | 'name' | 'date' | 'location' | 'number' | 'text' {
@@ -43,6 +47,19 @@ function detectColumnType(columnName: string): 'email' | 'name' | 'date' | 'loca
     if (lower.includes('zip') || lower.includes('city') || lower.includes('state') || lower.includes('address')) return 'location'
     if (lower.includes('id') || lower.includes('number') || lower.includes('phone') || lower.includes('age')) return 'number'
     return 'text'
+}
+
+function isIdColumn(columnName: string): boolean {
+    const lower = columnName.toLowerCase()
+    const idPatterns = [
+        /^id$/,          // exact "id"
+        /^.*_id$/,       //  ends with _id
+        /^id_/,          // starts with id_
+        /^.*id$/,        // ends with id
+        /^pk$/,          // primary key
+        /^uuid$/,        // uuid
+    ]
+    return idPatterns.some(pattern => pattern.test(lower))
 }
 
 function getColumnIcon(type: string) {
@@ -71,36 +88,100 @@ function getWeightLabel(weight: number): string {
     return closest.label
 }
 
-export function SimpleComparisonBuilder({ columns, onConfigChange, initialConfig = [] }: SimpleComparisonBuilderProps) {
+export function SimpleComparisonBuilder({
+    columns,
+    onConfigChange,
+    initialConfig = [],
+    onGlobalSettingsChange,
+    initialGlobalSettings
+}: SimpleComparisonBuilderProps) {
     const [configs, setConfigs] = useState<AdvancedComparisonConfig[]>([])
     const [advancedMode, setAdvancedMode] = useState(false)
+    const [globalSettings, setGlobalSettings] = useState(
+        initialGlobalSettings || { probability_two_random_records_match: 0.0001 }
+    )
+
+    // Track if we've initialized to prevent feedback loop
+    const isInitializedRef = useRef(false)
+
+    // Initialize global settings from props only once
+    useEffect(() => {
+        if (initialGlobalSettings && !isInitializedRef.current) {
+            setGlobalSettings(initialGlobalSettings)
+            isInitializedRef.current = true
+        }
+    }, [initialGlobalSettings])
+
+    // Notify parent of global settings changes (skip initial notification)
+    useEffect(() => {
+        if (isInitializedRef.current && onGlobalSettingsChange) {
+            onGlobalSettingsChange(globalSettings)
+        }
+    }, [globalSettings])
 
     useEffect(() => {
         if (columns.length === 0) return
         if (configs.length > 0) return
 
-        const newConfigs = columns.map(col => {
-            const type = detectColumnType(col)
-            const method = suggestMethod(col, type)
-            const weight = suggestWeight(col)
-            const methodDef = COMPARISON_METHODS.find(m => m.method === method)
+        if (initialConfig.length > 0) {
+            // Restore from initial config
+            const restoredConfigs = columns.map(col => {
+                const existing = initialConfig.find(c => c.column === col)
+                if (existing) {
+                    return {
+                        ...existing,
+                        levels: (existing as AdvancedComparisonConfig).levels || [
+                            { method: 'exact', mProbability: 0.9, uProbability: 0.05, label: 'Exact Match' },
+                            { method: 'levenshtein', threshold: 2, mProbability: 0.7, uProbability: 0.2, label: 'Similar' },
+                            { method: 'else', mProbability: 0.1, uProbability: 0.75, label: 'Else' }
+                        ]
+                    }
+                }
+                // Default for new columns
+                const type = detectColumnType(col)
+                const method = suggestMethod(col, type)
+                const weight = suggestWeight(col)
+                const methodDef = COMPARISON_METHODS.find(m => m.method === method)
+                return {
+                    column: col,
+                    enabled: false,
+                    method,
+                    weight,
+                    threshold: methodDef?.defaultThreshold,
+                    params: {},
+                    levels: [
+                        { method: 'exact', mProbability: 0.9, uProbability: 0.05, label: 'Exact Match' },
+                        { method: 'levenshtein', threshold: 2, mProbability: 0.7, uProbability: 0.2, label: 'Similar' },
+                        { method: 'else', mProbability: 0.1, uProbability: 0.75, label: 'Else' }
+                    ]
+                }
+            })
+            setConfigs(restoredConfigs)
+        } else {
+            // Initialize new configs
+            const newConfigs = columns.map(col => {
+                const type = detectColumnType(col)
+                const method = suggestMethod(col, type)
+                const weight = suggestWeight(col)
+                const methodDef = COMPARISON_METHODS.find(m => m.method === method)
 
-            return {
-                column: col,
-                enabled: false,
-                method,
-                weight,
-                threshold: methodDef?.defaultThreshold,
-                params: {},
-                levels: [
-                    { method: 'exact', mProbability: 0.9, uProbability: 0.05, label: 'Exact Match' },
-                    { method: 'levenshtein', threshold: 2, mProbability: 0.7, uProbability: 0.2, label: 'Similar' },
-                    { method: 'else', mProbability: 0.1, uProbability: 0.75, label: 'Else' }
-                ]
-            }
-        })
-        setConfigs(newConfigs)
-    }, [columns.length])
+                return {
+                    column: col,
+                    enabled: false,
+                    method,
+                    weight,
+                    threshold: methodDef?.defaultThreshold,
+                    params: {},
+                    levels: [
+                        { method: 'exact', mProbability: 0.9, uProbability: 0.05, label: 'Exact Match' },
+                        { method: 'levenshtein', threshold: 2, mProbability: 0.7, uProbability: 0.2, label: 'Similar' },
+                        { method: 'else', mProbability: 0.1, uProbability: 0.75, label: 'Else' }
+                    ]
+                }
+            })
+            setConfigs(newConfigs)
+        }
+    }, [columns.length, initialConfig])
 
     useEffect(() => {
         const activeConfigs = configs.filter(c => c.enabled)
@@ -108,34 +189,60 @@ export function SimpleComparisonBuilder({ columns, onConfigChange, initialConfig
     }, [configs])
 
     const handleToggle = (column: string, enabled: boolean) => {
-        setConfigs(prev => prev.map(c => c.column === column ? { ...c, enabled } : c))
+        setConfigs(prev => prev.map(c =>
+            c.column === column ? { ...c, enabled } : c
+        ))
     }
 
     const handleMethodChange = (column: string, method: string) => {
+        const methodDef = COMPARISON_METHODS.find(m => m.method === method)
+        setConfigs(prev => prev.map(c =>
+            c.column === column ? {
+                ...c,
+                method,
+                threshold: methodDef?.defaultThreshold
+            } : c
+        ))
+    }
+
+    const handleWeightChange = (column: string, weight: number) => {
+        setConfigs(prev => prev.map(c =>
+            c.column === column ? { ...c, weight } : c
+        ))
+    }
+
+    const handleThresholdChange = (column: string, threshold: number) => {
+        setConfigs(prev => prev.map(c =>
+            c.column === column ? { ...c, threshold } : c
+        ))
+    }
+
+    const handleEntityTypeChange = (column: string, type: EntityType) => {
+        const smartConfig = getSmartConfigForType(type, column)
         setConfigs(prev => prev.map(c => {
             if (c.column === column) {
-                const methodDef = COMPARISON_METHODS.find(m => m.method === method)
-                return { ...c, method: method as any, threshold: methodDef?.defaultThreshold }
+                return {
+                    ...c,
+                    ...smartConfig,
+                    // Preserve enabled state
+                    enabled: c.enabled
+                }
             }
             return c
         }))
     }
 
-    const handleWeightChange = (column: string, weight: number) => {
-        setConfigs(prev => prev.map(c => c.column === column ? { ...c, weight } : c))
-    }
-
-    const handleThresholdChange = (column: string, threshold: number) => {
-        setConfigs(prev => prev.map(c => c.column === column ? { ...c, threshold } : c))
-    }
-
-    // Advanced mode handlers
     const handleAddLevel = (column: string) => {
         setConfigs(prev => prev.map(c => {
-            if (c.column === column && c.levels) {
+            if (c.column === column) {
+                const levels = c.levels || []
                 return {
                     ...c,
-                    levels: [...c.levels, { method: 'exact', mProbability: 0.5, uProbability: 0.5, label: 'New Level' }]
+                    levels: [
+                        ...levels.slice(0, -1), // Remove 'else'
+                        { method: 'exact', mProbability: 0.8, uProbability: 0.1, label: `Level ${levels.length} ` },
+                        levels[levels.length - 1] // Keep 'else' at end
+                    ]
                 }
             }
             return c
@@ -145,17 +252,19 @@ export function SimpleComparisonBuilder({ columns, onConfigChange, initialConfig
     const handleRemoveLevel = (column: string, index: number) => {
         setConfigs(prev => prev.map(c => {
             if (c.column === column && c.levels) {
-                return { ...c, levels: c.levels.filter((_, i) => i !== index) }
+                const newLevels = [...c.levels]
+                newLevels.splice(index, 1)
+                return { ...c, levels: newLevels }
             }
             return c
         }))
     }
 
-    const handleLevelChange = (column: string, levelIndex: number, field: keyof ComparisonLevel, value: any) => {
+    const handleLevelChange = (column: string, index: number, field: keyof ComparisonLevel, value: any) => {
         setConfigs(prev => prev.map(c => {
             if (c.column === column && c.levels) {
                 const newLevels = [...c.levels]
-                newLevels[levelIndex] = { ...newLevels[levelIndex], [field]: value }
+                newLevels[index] = { ...newLevels[index], [field]: value }
                 return { ...c, levels: newLevels }
             }
             return c
@@ -167,57 +276,64 @@ export function SimpleComparisonBuilder({ columns, onConfigChange, initialConfig
 
     return (
         <div className="space-y-6">
-            {/* Header with Mode Toggle */}
-            <Card className="border-blue-500/50 bg-blue-50/50 dark:bg-blue-950/20">
-                <CardHeader>
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <CardTitle className="flex items-center gap-2">
-                                <Zap className="h-5 w-5" />
-                                Comparison Configuration
-                            </CardTitle>
-                            <CardDescription>
-                                {advancedMode
-                                    ? 'Configure multiple comparison levels per field with probabilities'
-                                    : 'Choose how to compare each field for matching'}
-                            </CardDescription>
-                        </div>
-                        <div className="flex items-center gap-3">
-                            <Badge variant={enabledCount > 0 ? 'default' : 'secondary'}>
-                                {enabledCount} {enabledCount === 1 ? 'field' : 'fields'}
-                            </Badge>
-                            {totalWeight > 0 && !advancedMode && (
+            {/* Global Settings Panel */}
+            <Card className="border-indigo-500/50 bg-indigo-50/50 dark:bg-indigo-950/20">
+                <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                        <Settings className="h-4 w-4" />
+                        Global Matching Settings
+                    </CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <div className="space-y-4">
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                                <label className="text-sm font-medium">Strictness (Match Probability)</label>
                                 <Badge variant="outline">
-                                    Total weight: {(totalWeight * 100).toFixed(0)}%
+                                    {globalSettings.probability_two_random_records_match.toExponential(1)}
                                 </Badge>
-                            )}
-                            <div className="flex items-center gap-2 px-3 py-1 bg-background rounded-lg border">
-                                <Settings className="h-4 w-4" />
-                                <span className="text-xs font-medium">Advanced</span>
-                                <Switch checked={advancedMode} onCheckedChange={setAdvancedMode} />
                             </div>
+                            <Slider
+                                value={[Math.log10(globalSettings.probability_two_random_records_match)]}
+                                onValueChange={([val]) => setGlobalSettings(prev => ({
+                                    ...prev,
+                                    probability_two_random_records_match: Math.pow(10, val)
+                                }))}
+                                min={-6} // 1e-6
+                                max={-2} // 1e-2
+                                step={0.5}
+                                className="w-full"
+                            />
+                            <p className="text-xs text-muted-foreground flex justify-between">
+                                <span>Strict (1 in 1M)</span>
+                                <span>Loose (1 in 100)</span>
+                            </p>
                         </div>
                     </div>
-                </CardHeader>
+                </CardContent>
             </Card>
 
-            {/* Info Alert for Advanced Mode */}
-            {advancedMode && (
-                <Card className="border-purple-500/50 bg-purple-50/50 dark:bg-purple-950/20">
-                    <CardContent className="py-4">
-                        <div className="flex items-start gap-3">
-                            <Info className="h-5 w-5 text-purple-500 flex-shrink-0 mt-0.5" />
-                            <div className="space-y-1">
-                                <p className="text-sm font-medium">Advanced Multi-Level Comparison</p>
-                                <p className="text-xs text-muted-foreground">
-                                    Configure multiple comparison levels per field with m-probabilities (match) and u-probabilities (non-match).
-                                    This gives you fine-grained control over how Splink evaluates similarity.
-                                </p>
-                            </div>
+            {/* Header with Mode Toggle */}
+            <Card className="border-blue-500/50 bg-blue-50/50 dark:bg-blue-950/20">
+                <CardContent className="py-4 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <div className="p-2 bg-blue-100 dark:bg-blue-900 rounded-lg">
+                            <Zap className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                         </div>
-                    </CardContent>
-                </Card>
-            )}
+                        <div>
+                            <h3 className="font-medium">Configuration Mode</h3>
+                            <p className="text-xs text-muted-foreground">
+                                {advancedMode ? 'Advanced: Configure multi-level comparisons' : 'Simple: Choose methods and weights'}
+                            </p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <span className={`text - xs ${!advancedMode ? 'font-bold' : ''} `}>Simple</span>
+                        <Switch checked={advancedMode} onCheckedChange={setAdvancedMode} />
+                        <span className={`text - xs ${advancedMode ? 'font-bold' : ''} `}>Advanced</span>
+                    </div>
+                </CardContent>
+            </Card>
 
             {/* Column Cards */}
             <div className="grid grid-cols-1 gap-4">
@@ -229,17 +345,43 @@ export function SimpleComparisonBuilder({ columns, onConfigChange, initialConfig
                     return (
                         <Card
                             key={config.column}
-                            className={`transition-all ${config.enabled ? 'border-primary shadow-md' : 'border-muted'}`}
+                            className={`transition - all ${config.enabled ? 'border-primary shadow-md' : 'border-muted'} `}
                         >
                             <CardHeader className="pb-3">
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-2">
                                         {getColumnIcon(type)}
                                         <div>
-                                            <CardTitle className="text-sm font-mono">{config.column}</CardTitle>
-                                            <CardDescription className="text-xs">
-                                                {type.charAt(0).toUpperCase() + type.slice(1)} field
-                                            </CardDescription>
+                                            <div className="flex items-center gap-2">
+                                                <CardTitle className="text-sm font-mono">{config.column}</CardTitle>
+                                                {isIdColumn(config.column) && (
+                                                    <Badge variant="outline" className="text-[10px] h-5">ID</Badge>
+                                                )}
+                                                {config.enabled && (
+                                                    <Badge className="text-[10px] h-5 bg-green-600">Active</Badge>
+                                                )}
+                                            </div>
+                                            {/* Entity Type Selector */}
+                                            <div className="mt-1 flex items-center gap-2">
+                                                <span className="text-xs text-muted-foreground">Is this a:</span>
+                                                <Select
+                                                    value={detectColumnType(config.column) === 'name' ? 'person' : detectColumnType(config.column) as any} // Simple default mapping
+                                                    onValueChange={(val) => handleEntityTypeChange(config.column, val as EntityType)}
+                                                >
+                                                    <SelectTrigger className="h-6 text-xs w-[120px]">
+                                                        <SelectValue placeholder="Select type" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="company">Company</SelectItem>
+                                                        <SelectItem value="person">Person</SelectItem>
+                                                        <SelectItem value="address">Address</SelectItem>
+                                                        <SelectItem value="email">Email</SelectItem>
+                                                        <SelectItem value="phone">Phone</SelectItem>
+                                                        <SelectItem value="date">Date</SelectItem>
+                                                        <SelectItem value="custom">Custom</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
                                         </div>
                                     </div>
                                     <Switch
@@ -248,6 +390,7 @@ export function SimpleComparisonBuilder({ columns, onConfigChange, initialConfig
                                     />
                                 </div>
                             </CardHeader>
+
                             <CardContent className="space-y-4">
                                 {!advancedMode ? (
                                     // Simple Mode

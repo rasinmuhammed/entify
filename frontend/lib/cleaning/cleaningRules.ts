@@ -147,74 +147,80 @@ export const CLEANING_RULES: CleaningRuleDefinition[] = [
 /**
  * Generate SQL for a cleaning rule
  */
+/**
+ * Generate SQL for a cleaning rule
+ */
 export function generateCleaningSQL(
     rule: CleaningRule,
     tableName: string,
-    tempTableName: string
+    tempTableName: string,
+    isAlreadyCleaned: boolean = false
 ): string {
-    const col = `"${rule.column}"`  // Properly quote column names
+    const rawCol = `"${rule.column}"`
+    const cleanCol = `"${rule.column}_clean"`
+
+    // Target column to read from (use cleaned version if available, otherwise raw)
+    const inputCol = isAlreadyCleaned ? cleanCol : rawCol
+
+    // Helper to construct the SELECT clause
+    // If creating new: SELECT *, func(raw) AS clean FROM ...
+    // If updating: SELECT * REPLACE (func(clean) AS clean) FROM ...
+    const buildSql = (expression: string) => {
+        if (isAlreadyCleaned) {
+            return `CREATE OR REPLACE TABLE "${tempTableName}" AS 
+                SELECT * REPLACE (${expression} AS ${cleanCol}) 
+                FROM "${tableName}"`
+        } else {
+            return `CREATE OR REPLACE TABLE "${tempTableName}" AS 
+                SELECT *, ${expression} AS ${cleanCol} 
+                FROM "${tableName}"`
+        }
+    }
 
     switch (rule.type) {
         case 'remove_nulls':
+            // Row operation - just filter
             return `CREATE OR REPLACE TABLE "${tempTableName}" AS 
                 SELECT * FROM "${tableName}" 
-                WHERE ${col} IS NOT NULL AND ${col} != ''`
+                WHERE ${inputCol} IS NOT NULL AND ${inputCol} != ''`
 
         case 'trim':
-            return `CREATE OR REPLACE TABLE "${tempTableName}" AS 
-                SELECT * REPLACE (TRIM(${col}) AS ${col}) 
-                FROM "${tableName}"`
+            return buildSql(`TRIM(${inputCol})`)
 
         case 'lowercase':
-            return `CREATE OR REPLACE TABLE "${tempTableName}" AS 
-                SELECT * REPLACE (LOWER(${col}) AS ${col}) 
-                FROM "${tableName}"`
+            return buildSql(`LOWER(${inputCol})`)
 
         case 'uppercase':
-            return `CREATE OR REPLACE TABLE "${tempTableName}" AS 
-                SELECT * REPLACE (UPPER(${col}) AS ${col}) 
-                FROM "${tableName}"`
+            return buildSql(`UPPER(${inputCol})`)
 
         case 'remove_duplicates':
+            // Row operation - distinct across all columns
             return `CREATE OR REPLACE TABLE "${tempTableName}" AS 
                 SELECT DISTINCT * FROM "${tableName}"`
 
         case 'regex_replace':
             const pattern = rule.params?.pattern || ''
             const replacement = rule.params?.replacement || ''
-            return `CREATE OR REPLACE TABLE "${tempTableName}" AS 
-                SELECT * REPLACE (
-                    REGEXP_REPLACE(${col}, '${pattern}', '${replacement}') AS ${col}
-                ) FROM "${tableName}"`
+            return buildSql(`REGEXP_REPLACE(${inputCol}, '${pattern}', '${replacement}')`)
 
         case 'standardize_phone':
-            return `CREATE OR REPLACE TABLE "${tempTableName}" AS 
-                SELECT * REPLACE (
-                    REGEXP_REPLACE(${col}, '[^0-9+]', '') AS ${col}
-                ) FROM "${tableName}"`
+            return buildSql(`REGEXP_REPLACE(${inputCol}, '[^0-9+]', '')`)
 
         case 'remove_special_chars':
-            return `CREATE OR REPLACE TABLE "${tempTableName}" AS 
-                SELECT * REPLACE (
-                    REGEXP_REPLACE(${col}, '[^a-zA-Z0-9 ]', '') AS ${col}
-                ) FROM "${tableName}"`
+            return buildSql(`REGEXP_REPLACE(${inputCol}, '[^a-zA-Z0-9 ]', '')`)
 
         case 'remove_stopwords':
             const customWords = rule.params?.customWords || ''
             const stopwordsList = customWords
                 ? customWords.split(',').map((w: string) => w.trim()).filter(Boolean)
                 : []
-            // Import stopwords dynamically or use default pattern
             const stopwordsPattern = stopwordsList.length > 0
                 ? `\\\\b(${stopwordsList.join('|')})\\\\b`
                 : '\\\\b(the|a|an|and|or|but|in|on|at|to|for|of|with|by|from|as|is|was|are|were|be|been|being|have|has|had|do|does|did)\\\\b'
-            return `CREATE OR REPLACE TABLE "${tempTableName}" AS 
-                SELECT * REPLACE (
-                    TRIM(REGEXP_REPLACE(${col}, '${stopwordsPattern}', '', 'gi')) AS ${col}
-                ) FROM "${tableName}"`
+            return buildSql(`TRIM(REGEXP_REPLACE(${inputCol}, '${stopwordsPattern}', '', 'gi'))`)
 
         case 'normalize_text':
-            let normalizeSQL = col
+            let normalizeSQL = inputCol
             if (rule.params?.removeAccents) {
                 normalizeSQL = `TRANSLATE(${normalizeSQL}, 'àáâãäåèéêëìíîïòóôõöùúûüýÿñçÀÁÂÃÄÅÈÉÊËÌÍÎÏÒÓÔÕÖÙÚÛÜÝŸÑÇ', 'aaaaaaeeeeiiiioooooouuuuyyncAAAAAAEEEEIIIIOOOOOUUUUYYNC')`
             }
@@ -230,21 +236,16 @@ export function generateCleaningSQL(
             if (rule.params?.trimWhitespace) {
                 normalizeSQL = `TRIM(${normalizeSQL})`
             }
-            return `CREATE OR REPLACE TABLE "${tempTableName}" AS 
-                SELECT * REPLACE (${normalizeSQL} AS ${col}) FROM "${tableName}"`
+            return buildSql(normalizeSQL)
 
         case 'replace_pattern':
             const findPattern = rule.params?.pattern || ''
             const replaceWith = rule.params?.replacement || ''
             const flags = rule.params?.flags || 'g'
-            return `CREATE OR REPLACE TABLE "${tempTableName}" AS 
-                SELECT * REPLACE (
-                    REGEXP_REPLACE(${col}, '${findPattern}', '${replaceWith}', '${flags}') AS ${col}
-                ) FROM "${tableName}"`
-
+            return buildSql(`REGEXP_REPLACE(${inputCol}, '${findPattern}', '${replaceWith}', '${flags}')`)
 
         default:
-            return `SELECT * FROM "${tableName}"`
+            return `CREATE OR REPLACE TABLE "${tempTableName}" AS SELECT * FROM "${tableName}"`
     }
 }
 
@@ -314,24 +315,30 @@ export async function applyCleaningRules(
         // Apply rules sequentially
         let currentTable = rawTableName
         const columnsModified = new Set<string>()
+        const cleanedColumns = new Set<string>() // Track which columns have _clean version
 
         for (let i = 0; i < enabledRules.length; i++) {
             const rule = enabledRules[i]
             const tempTable = `temp_clean_${i}`
 
             try {
-                const sql = generateCleaningSQL(rule, currentTable, tempTable)
+                // Check if we already have a _clean version of this column
+                const isAlreadyCleaned = rule.column ? cleanedColumns.has(rule.column) : false
+
+                const sql = generateCleaningSQL(rule, currentTable, tempTable, isAlreadyCleaned)
                 await conn.query(sql)
 
                 // Track which columns were modified
                 if (rule.column) {
                     columnsModified.add(rule.column)
+
+                    // If this is a transformation rule (not just filtering), mark as cleaned
+                    const isTransformRule = !['remove_nulls', 'remove_duplicates'].includes(rule.type)
+                    if (isTransformRule) {
+                        cleanedColumns.add(rule.column)
+                    }
                 } else {
-                    // Rule applies to all columns (e.g., remove_nulls)
-                    const schemaResult = await conn.query(`DESCRIBE "${tableName}"`)
-                    schemaResult.toArray().forEach((row: any) => {
-                        columnsModified.add(row.column_name)
-                    })
+                    // Rule applies to all columns (e.g., remove_nulls) - no new columns created
                 }
 
                 currentTable = tempTable

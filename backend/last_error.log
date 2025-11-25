@@ -1,14 +1,7 @@
 Traceback (most recent call last):
-  File "/Users/muhammedrasin/entify/backend/services/splink_service.py", line 139, in process_entity_resolution
-    predictions_df = self.engine.run_resolution(table_name, settings)
-                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/muhammedrasin/entify/backend/engine.py", line 160, in run_resolution
-    self.linker = Linker(table_name, settings, db_api=db_api)
-                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/muhammedrasin/entify/venv/lib/python3.12/site-packages/splink/internals/linker.py", line 148, in __init__
-    settings_creator = SettingsCreator.from_path_or_dict(settings)
-                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/muhammedrasin/entify/venv/lib/python3.12/site-packages/splink/internals/settings_creator.py", line 137, in from_path_or_dict
-    return SettingsCreator(**settings_dict)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-TypeError: SettingsCreator.__init__() got an unexpected keyword argument 'blocking_rules'
+  File "/Users/muhammedrasin/entify/backend/services/splink_service.py", line 184, in process_entity_resolution
+    converted_comparisons.append(_convert_to_splink_comparison(comp))
+                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/muhammedrasin/entify/backend/services/splink_service.py", line 63, in _convert_to_splink_comparison
+    from splink.duckdb.comparison_library import (
+ModuleNotFoundError: No module named 'splink.duckdb'

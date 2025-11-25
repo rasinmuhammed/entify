@@ -2,7 +2,7 @@
 FastAPI REST API for Entity Resolution
 Provides endpoints for Splink-powered matching
 """
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -10,11 +10,29 @@ from typing import Dict, List, Optional, Any
 import base64
 import sys
 import os
+import asyncio
+import json
+import time
+from queue import Queue
+from sse_starlette.sse import EventSourceResponse
 
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from services.splink_service import SplinkService, EntityResolutionRequest, EntityResolutionResponse
+
+# Global log queue for training logs
+training_log_queue = Queue()
+
+def emit_training_log(message: str, level: str = "info", data: Optional[Dict] = None):
+    """Emit a training log to the queue"""
+    log_entry = {
+        "message": message,
+        "level": level,
+        "timestamp": time.time(),
+        "data": data or {}
+    }
+    training_log_queue.put(log_entry)
 
 app = FastAPI(
     title="Entify API",
@@ -155,6 +173,72 @@ async def health_check():
             "status": "degraded",
             "error": str(e)
         }
+
+
+@app.get("/api/training-logs")
+async def training_logs(request: Request):
+    """
+    Server-Sent Events endpoint for streaming training logs
+    """
+    async def event_generator():
+        try:
+            while True:
+                # Check if client disconnected
+                if await request.is_disconnected():
+                    break
+                
+                # Check for new logs
+                if not training_log_queue.empty():
+                    log = training_log_queue.get_nowait()
+                    yield {
+                        "event": "log",
+                        "data": json.dumps(log)
+                    }
+                else:
+                    # Send heartbeat every 15 seconds to keep connection alive
+                    yield {
+                        "event": "heartbeat",
+                        "data": json.dumps({"timestamp": time.time()})
+                    }
+                
+                await asyncio.sleep(0.1)
+        except asyncio.CancelledError:
+            pass
+    
+    return EventSourceResponse(event_generator())
+
+
+
+@app.get("/api/splink/charts/match-weights")
+async def get_match_weights_chart():
+    """
+    Get the match weights chart as HTML
+    """
+    try:
+        chart_html = splink_service.get_match_weights_chart()
+        if not chart_html:
+            raise HTTPException(status_code=404, detail="Chart not available. Run resolution first.")
+        
+        return JSONResponse(content={"html": chart_html})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/splink/charts/waterfall")
+async def get_waterfall_chart(record_id_1: str, record_id_2: str):
+    """
+    Get the waterfall chart for a specific pair of records
+    """
+    try:
+        # Parse composite IDs if necessary, but Splink usually expects simple IDs or dicts
+        # For now, we assume the service handles the ID lookup/formatting
+        chart_html = splink_service.get_waterfall_chart(record_id_1, record_id_2)
+        if not chart_html:
+            raise HTTPException(status_code=404, detail="Chart not available or pair not found.")
+            
+        return JSONResponse(content={"html": chart_html})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":

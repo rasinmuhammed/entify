@@ -1,10 +1,13 @@
 "use client"
 
+import { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { CheckCircle2, TrendingUp, TrendingDown, Download, BarChart3 } from 'lucide-react'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { CheckCircle2, TrendingUp, TrendingDown, Download, BarChart3, Table, ArrowLeftRight } from 'lucide-react'
 import { DataQualityMetrics } from '@/lib/cleaning/dataQuality'
+import { DataComparisonViewer } from './DataComparisonViewer'
 
 interface CleaningResultsProps {
     initialRows: number
@@ -15,6 +18,8 @@ interface CleaningResultsProps {
     cleanedFilePath?: string | null
     onExport?: () => void
     onContinue?: () => void
+    duckDB?: any  // DuckDB instance for data preview
+    tableName?: string  // Table name for preview
 }
 
 export function CleaningResults({
@@ -25,8 +30,44 @@ export function CleaningResults({
     qualityMetrics,
     cleanedFilePath,
     onExport,
-    onContinue
+    onContinue,
+    duckDB,
+    tableName
 }: CleaningResultsProps) {
+    const [rawData, setRawData] = useState<any[]>([])
+    const [cleanedData, setCleanedData] = useState<any[]>([])
+    const [dataView, setDataView] = useState<'raw' | 'cleaned'>('cleaned')
+    const [loadingData, setLoadingData] = useState(false)
+
+    useEffect(() => {
+        if (duckDB && tableName) {
+            loadDataPreviews()
+        }
+    }, [duckDB, tableName])
+
+    const loadDataPreviews = async () => {
+        if (!duckDB || !tableName) return
+
+        setLoadingData(true)
+        try {
+            const conn = await duckDB.connect()
+
+            // Load raw data preview
+            const rawResult = await conn.query(`SELECT * FROM "${tableName}_raw" LIMIT 100`)
+            setRawData(rawResult.toArray().map((r: any) => r.toJSON()))
+
+            // Load cleaned data preview
+            const cleanedResult = await conn.query(`SELECT * FROM "${tableName}_cleaned" LIMIT 100`)
+            setCleanedData(cleanedResult.toArray().map((r: any) => r.toJSON()))
+
+            await conn.close()
+        } catch (error) {
+            console.error('Failed to load data previews:', error)
+        } finally {
+            setLoadingData(false)
+        }
+    }
+
     const qualityScore = qualityMetrics?.overall || 0
     const qualityGrade = qualityScore >= 90 ? { label: 'Excellent', color: 'bg-green-500', emoji: '🏆' } :
         qualityScore >= 75 ? { label: 'Good', color: 'bg-blue-500', emoji: '✅' } :
@@ -153,6 +194,118 @@ export function CleaningResults({
                                 </div>
                             ))}
                         </div>
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* Data Preview */}
+            {duckDB && tableName && (rawData.length > 0 || cleanedData.length > 0) && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            <Table className="h-5 w-5" />
+                            Data Preview
+                        </CardTitle>
+                        <CardDescription>Compare raw and cleaned data side by side</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <Tabs value={dataView} onValueChange={(v) => setDataView(v as any)}>
+                            <TabsList className="grid w-full grid-cols-3 mb-4">
+                                <TabsTrigger value="raw">
+                                    Raw Data ({rawData.length} rows)
+                                </TabsTrigger>
+                                <TabsTrigger value="cleaned">
+                                    Cleaned Data ({cleanedData.length} rows)
+                                </TabsTrigger>
+                                <TabsTrigger value="comparison">
+                                    <ArrowLeftRight className="h-4 w-4 mr-2" />
+                                    Comparison
+                                </TabsTrigger>
+                            </TabsList>
+
+                            <TabsContent value="raw" className="mt-0">
+                                {rawData.length > 0 ? (
+                                    <div className="border rounded-lg overflow-auto max-h-[400px]">
+                                        <table className="w-full text-sm">
+                                            <thead className="bg-muted sticky top-0">
+                                                <tr>
+                                                    {Object.keys(rawData[0]).map((key) => (
+                                                        <th key={key} className="px-4 py-2 text-left font-medium">
+                                                            {key}
+                                                        </th>
+                                                    ))}
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {rawData.slice(0, 10).map((row, idx) => (
+                                                    <tr key={idx} className="border-t hover:bg-muted/50">
+                                                        {Object.values(row).map((val: any, i) => (
+                                                            <td key={i} className="px-4 py-2">
+                                                                {val?.toString() || '-'}
+                                                            </td>
+                                                        ))}
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                ) : (
+                                    <div className="text-center py-8 text-muted-foreground">
+                                        No raw data available
+                                    </div>
+                                )}                            </TabsContent>
+
+                            <TabsContent value="cleaned" className="mt-0">
+                                {cleanedData.length > 0 ? (
+                                    <div className="border rounded-lg overflow-auto max-h-[400px]">
+                                        <table className="w-full text-sm">
+                                            <thead className="bg-muted sticky top-0">
+                                                <tr>
+                                                    {Object.keys(cleanedData[0]).map((key) => {
+                                                        const isCleaned = key.endsWith('_clean')
+                                                        return (
+                                                            <th key={key} className={`px-4 py-2 text-left font-medium ${isCleaned ? 'bg-green-50/50 dark:bg-green-900/10' : ''}`}>
+                                                                <div className="flex items-center gap-2">
+                                                                    {key}
+                                                                    {isCleaned && (
+                                                                        <Badge variant="default" className="bg-green-600 hover:bg-green-700 text-[10px] h-5 px-1.5">
+                                                                            Cleaned
+                                                                        </Badge>
+                                                                    )}
+                                                                </div>
+                                                            </th>
+                                                        )
+                                                    })}
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {cleanedData.slice(0, 10).map((row, idx) => (
+                                                    <tr key={idx} className="border-t hover:bg-muted/50">
+                                                        {Object.entries(row).map(([key, val]: [string, any], i) => (
+                                                            <td key={i} className={`px-4 py-2 ${key.endsWith('_clean') ? 'bg-green-50/30 dark:bg-green-900/5' : ''}`}>
+                                                                {val?.toString() || '-'}
+                                                            </td>
+                                                        ))}
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                ) : (
+                                    <div className="text-center py-8 text-muted-foreground">
+                                        No cleaned data available
+                                    </div>
+                                )}
+                            </TabsContent>
+
+                            <TabsContent value="comparison" className="mt-0">
+                                <DataComparisonViewer
+                                    duckDB={duckDB}
+                                    originalTableName={`${tableName}_original`}
+                                    cleanedTableName={tableName}
+                                />
+                            </TabsContent>
+                        </Tabs>
                     </CardContent>
                 </Card>
             )}

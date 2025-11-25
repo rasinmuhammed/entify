@@ -16,6 +16,7 @@ class SplinkSettings(BaseModel):
     unique_id_column_name: str = Field(default="id", description="Unique ID column")
     blocking_rules_to_generate_predictions: List[str] = Field(default_factory=list)
     comparisons: List[Dict[str, Any]] = Field(default_factory=list)
+    probability_two_random_records_match: Optional[float] = Field(default=0.0001, description="Probability two random records match")
     
     class Config:
         json_schema_extra = {
@@ -55,6 +56,66 @@ class EntityResolutionResponse(BaseModel):
     error: Optional[str] = None
 
 
+def _convert_to_splink_comparison(comp: Dict) -> Any:
+    """
+    Convert frontend JSON comparison to Splink comparison library format.
+    This uses Splink's optimized comparison functions instead of raw SQL.
+    """
+    from splink.comparison_library import (
+        ExactMatch,
+        JaroWinklerAtThresholds,
+        JaccardAtThresholds,
+        LevenshteinAtThresholds
+    )
+    
+    column = comp.get('output_column_name')
+    if not column:
+        return comp
+
+    # Check if we have a specific method defined in the frontend config
+    # The frontend sends 'comparisons' list where each item might have a 'method' property
+    # But here we receive the Splink-formatted object which has 'comparison_levels'
+    # We need to infer the method from the SQL conditions or pass the method explicitly
+    
+    # Better approach: The frontend generates a 'comparison_library_name' property
+    # in generateSplinkComparison. Let's use that if available.
+    
+    method = comp.get('comparison_library_name')
+    threshold = comp.get('threshold')
+    
+    if method == 'exact_match':
+        return ExactMatch(column)
+        
+    elif method == 'jaro_winkler_at_thresholds':
+        # Default thresholds if not provided
+        thresholds = [0.9, 0.8] if not threshold else [float(threshold), float(threshold) - 0.1]
+        return JaroWinklerAtThresholds(column, thresholds)
+        
+    elif method == 'jaccard_at_thresholds':
+        thresholds = [0.9, 0.7] if not threshold else [float(threshold), float(threshold) - 0.2]
+        return JaccardAtThresholds(column, thresholds)
+        
+    elif method == 'levenshtein_at_thresholds':
+        thresholds = [1, 2] if not threshold else [int(threshold), int(threshold) + 1]
+        return LevenshteinAtThresholds(column, thresholds)
+    
+    # Fallback: Try to detect from SQL conditions (legacy support)
+    levels = comp.get('comparison_levels', [])
+    match_level = next((l for l in levels if 'sql_condition' in l and column in l['sql_condition']), None)
+    
+    if match_level:
+        sql = match_level.get('sql_condition', '')
+        if 'jaro_winkler' in sql:
+            return JaroWinklerAtThresholds(column, [0.9, 0.7])
+        elif 'jaccard' in sql:
+            return JaccardAtThresholds(column, [0.9, 0.7])
+        elif 'levenshtein' in sql:
+            return LevenshteinAtThresholds(column, [1, 2])
+
+    # Default to exact match
+    return ExactMatch(column)
+
+
 class SplinkService:
     """
     Service layer for Splink entity resolution
@@ -78,10 +139,10 @@ class SplinkService:
             data_csv: CSV data as string
             settings: Splink settings dictionary
             threshold: Match probability threshold
-            table_name: Name for the DuckDB table
+            table_name: Name of the table in DuckDB
             
         Returns:
-            Dictionary with matches and metadata
+            Dictionary with status and results
         """
         import time
         start_time = time.time()
@@ -90,14 +151,13 @@ class SplinkService:
             # Initialize engine
             self.engine = EntityResolutionEngine()
             
-            # Save CSV to temporary file
-            temp_csv_path = f"/tmp/{table_name}_{int(start_time)}.csv"
-            with open(temp_csv_path, 'w') as f:
+            # Save CSV temporarily
+            temp_csv_path = f"/tmp/{table_name}.csv"
+            with open(temp_csv_path, "w") as f:
                 f.write(data_csv)
             
             # Ingest data
-            row_count = self.engine.ingest_data(temp_csv_path, table_name)
-            print(f"✅ Ingested {row_count} rows")
+            self.engine.ingest_data(temp_csv_path, table_name)
             
             # Ensure blocking rules are present; if none provided, use empty lists
             if "blocking_rules_to_generate_predictions" not in settings:
@@ -108,19 +168,23 @@ class SplinkService:
             # Ensure comparisons key exists (Splink expects it)
             if "comparisons" not in settings:
                 settings["comparisons"] = []
-            # Remove any unsupported 'blocking_rules' key (Splink expects only blocking_rules_to_generate_predictions)
-            # (No action needed now as we keep the empty list above)
-            # Ensure each comparison has at least two levels (match + else) to avoid Splink division by zero
+                
+            # Helper to check if a column is the unique ID column
+            def _is_id_column(col_name: str) -> bool:
+                return col_name == settings.get("unique_id_column_name", "id")
+
+            # Convert comparisons to Splink library format
             if isinstance(settings.get("comparisons"), list):
+                converted_comparisons = []
                 for comp in settings["comparisons"]:
-                    levels = comp.get("comparison_levels", [])
-                    if len(levels) == 1:
-                        # Add an else level
-                        levels.append({
-                            "sql_condition": "1=1",
-                            "label_for_charts": "Else"
-                        })
-                        comp["comparison_levels"] = levels
+                    # Skip ID columns if any slipped through
+                    column = comp.get("output_column_name")
+                    if column and _is_id_column(column):
+                        continue
+                        
+                    converted_comparisons.append(_convert_to_splink_comparison(comp))
+                settings["comparisons"] = converted_comparisons
+                
             # After ingest, fetch column names to validate blocking rules
             col_info = self.engine.con.execute(f"PRAGMA table_info({table_name})").fetchdf()
             existing_columns = set(col_info['name'])
@@ -217,3 +281,19 @@ class SplinkService:
             
         except Exception as e:
             return {"error": str(e)}
+
+    def get_match_weights_chart(self) -> Optional[str]:
+        """
+        Get the match weights chart as HTML string
+        """
+        if not self.engine:
+            return None
+        return self.engine.get_match_weights_chart()
+
+    def get_waterfall_chart(self, record_id_1: str, record_id_2: str) -> Optional[str]:
+        """
+        Get the waterfall chart for a pair of records
+        """
+        if not self.engine:
+            return None
+        return self.engine.get_waterfall_chart(record_id_1, record_id_2)

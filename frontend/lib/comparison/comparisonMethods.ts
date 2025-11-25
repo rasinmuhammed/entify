@@ -14,6 +14,15 @@ export type ComparisonMethod =
     | 'contains'
     | 'company_name'  // Intelligent company name matching
 
+export type EntityType =
+    | 'company'
+    | 'person'
+    | 'address'
+    | 'email'
+    | 'phone'
+    | 'date'
+    | 'custom'
+
 export interface ComparisonConfig {
     column: string
     enabled: boolean
@@ -27,6 +36,10 @@ export interface ComparisonConfig {
         max_days_diff?: number
         max_percent_diff?: number
     }
+}
+
+export interface GlobalSettings {
+    probability_two_random_records_match: number
 }
 
 export interface ComparisonMethodDefinition {
@@ -219,22 +232,115 @@ export function suggestWeight(columnName: string): number {
 }
 
 /**
+ * Get smart configuration for a specific entity type
+ */
+export function getSmartConfigForType(type: EntityType, column: string): Partial<ComparisonConfig> {
+    switch (type) {
+        case 'company':
+            return {
+                method: 'company_name', // Will use custom template
+                weight: 0.3,
+                threshold: 0.8
+            }
+        case 'person':
+            return {
+                method: 'jaro_winkler',
+                weight: 0.25,
+                threshold: 0.85
+            }
+        case 'address':
+            return {
+                method: 'jaccard',
+                weight: 0.2,
+                threshold: 0.7
+            }
+        case 'email':
+            return {
+                method: 'exact',
+                weight: 0.35
+            }
+        case 'phone':
+            return {
+                method: 'levenshtein',
+                weight: 0.2,
+                threshold: 0.8 // Allow 1-2 edits
+            }
+        case 'date':
+            return {
+                method: 'date_diff',
+                weight: 0.15,
+                threshold: 7 // 7 days
+            }
+        default:
+            return {
+                method: 'exact',
+                weight: 0.1
+            }
+    }
+}
+
+/**
  * Generate Splink comparison configuration
  */
 export function generateSplinkComparison(config: ComparisonConfig): any {
     // Special handling for company_name method - use template
     if (config.method === 'company_name') {
-        const { generateCompanyNameComparison, getDefaultCompanyNameConfig } = require('./templates/CompanyNameComparison')
-        const companyConfig = getDefaultCompanyNameConfig(config.column)
-        return generateCompanyNameComparison(companyConfig)
+        // Since we can't import the template generator directly here without circular deps or complexity,
+        // we'll return a special marker that the backend service will handle, OR
+        // we construct the levels manually here for now to keep it simple.
+
+        const column = config.column
+        return {
+            output_column_name: column,
+            comparison_levels: [
+                {
+                    sql_condition: `${column}_l IS NULL OR ${column}_r IS NULL`,
+                    label_for_charts: "Null",
+                    is_null_level: true
+                },
+                {
+                    sql_condition: `${column}_l = ${column}_r`,
+                    label_for_charts: "Exact Match",
+                    m_probability: 0.9,
+                    u_probability: 0.01
+                },
+                {
+                    sql_condition: `jaro_winkler_similarity(${column}_l, ${column}_r) >= 0.9`,
+                    label_for_charts: "High Similarity (90%+)",
+                    m_probability: 0.8,
+                    u_probability: 0.05
+                },
+                {
+                    sql_condition: `jaro_winkler_similarity(${column}_l, ${column}_r) >= 0.8`,
+                    label_for_charts: "Medium Similarity (80%+)",
+                    m_probability: 0.5,
+                    u_probability: 0.1
+                },
+                {
+                    sql_condition: "ELSE",
+                    label_for_charts: "No match",
+                    m_probability: 0.1,
+                    u_probability: 0.9
+                }
+            ]
+        }
     }
 
     // Standard methods - ALWAYS include null level + match + else
     const method = COMPARISON_METHODS.find(m => m.method === config.method)
     const column = config.column
 
+    // Map frontend methods to Splink library names
+    let libraryName = undefined
+    if (config.method === 'exact') libraryName = 'exact_match'
+    else if (config.method === 'jaro_winkler') libraryName = 'jaro_winkler_at_thresholds'
+    else if (config.method === 'jaccard') libraryName = 'jaccard_at_thresholds'
+    else if (config.method === 'levenshtein') libraryName = 'levenshtein_at_thresholds'
+
     return {
         output_column_name: column,
+        comparison_library_name: libraryName,
+        threshold: config.threshold,
         comparison_levels: [
             // Level 1: Null level (required by Splink)
             {

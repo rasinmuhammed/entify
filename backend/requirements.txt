@@ -4,3 +4,6 @@ pandas
 fastapi
 uvicorn
 python-multipart
+pydantic
+sentence-transformers
+scikit-learn

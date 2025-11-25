@@ -322,3 +322,122 @@ class EntityResolutionEngine:
         except Exception as e:
             print(f"Error fetching cluster stats: {e}")
             return []
+
+    def get_match_weights_chart(self):
+        """
+        Generate match weights chart HTML.
+        """
+        if not self.linker:
+            return None
+        
+        try:
+            # Splink 3.x method
+            chart = self.linker.match_weights_chart()
+            # The chart object has a .as_html() method or similar, or simply str(chart) might work depending on version
+            # Usually chart.spec is a dict, we want the HTML wrapper
+            # Let's try to get the HTML directly if possible, or save to string
+            # Splink charts are Altair/Vega-Lite based.
+            
+            # In recent Splink versions, we can get html string
+            import json
+            if hasattr(chart, "to_json"):
+                 # This returns the spec, frontend needs to render it or we return full HTML
+                 # Let's try to return the standalone HTML which is easier for now
+                 pass
+            
+            # Use a temporary file to get the HTML string if no direct method exists
+            # Or use chart.save(None) trick?
+            # Actually, chart.to_html() is standard in many libraries.
+            # Splink's chart objects usually have a way to export.
+            
+            # Let's assume we can get the spec and wrap it, or use splink's internal display logic
+            # For now, let's try to return the spec as a string, or look for a method.
+            # Checking Splink docs (mental check): linker.match_weights_chart() returns a SplinkChart.
+            # SplinkChart has .save("path.html").
+            
+            # We will save to a temp string buffer
+            # Actually, let's try to just return the spec and let frontend render? 
+            # No, the requirement was "Splink HTML charts".
+            
+            # Hack: save to temp file and read back
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w+', suffix='.html', delete=False) as tmp:
+                chart.save(tmp.name, overwrite=True)
+                tmp.seek(0)
+                html_content = tmp.read()
+                tmp.close()
+                os.unlink(tmp.name)
+                return html_content
+                
+        except Exception as e:
+            print(f"Error generating match weights chart: {e}")
+            return None
+
+    def get_waterfall_chart(self, record_id_1, record_id_2):
+        """
+        Generate waterfall chart HTML for a pair.
+        """
+        if not self.linker:
+            return None
+            
+        try:
+            # We need to handle IDs. If they are integers in the data, we must convert.
+            # If they are strings, keep as strings.
+            # We can try to infer type from the unique_id column in the database
+            # But for now, let's try both or just pass as is.
+            
+            # Splink waterfall_chart takes a dict of records or just IDs?
+            # linker.waterfall_chart(records) usually.
+            
+            # We need to find the records first.
+            # Or use linker.waterfall_chart(match_weight_record)
+            
+            # Better approach: find the specific prediction record
+            # self.predictions is a SplinkDataFrame
+            # We can query it for the pair
+            
+            # Construct a filter
+            # We need to know the unique ID column name
+            uid = self.linker._settings_obj._unique_id_column_name
+            
+            # This might be complex to query efficiently from the linker's prediction object if it's large.
+            # However, linker.waterfall_chart often accepts the records themselves.
+            
+            # Let's try to fetch the records from the input data
+            # This is "explain the match between these two records"
+            
+            # Fetch record 1
+            # We need to handle potential type mismatch (int vs str)
+            # Try to cast to int if it looks like one
+            def try_cast(val):
+                try:
+                    return int(val)
+                except:
+                    return val
+            
+            rid1 = try_cast(record_id_1)
+            rid2 = try_cast(record_id_2)
+            
+            records = self.con.execute(f"SELECT * FROM {self.linker._input_table_name} WHERE {uid} = ? OR {uid} = ?", [rid1, rid2]).fetchdf().to_dict(orient='records')
+            
+            if len(records) != 2:
+                print(f"Could not find both records: {rid1}, {rid2}. Found {len(records)}")
+                return None
+                
+            # Sort so we pass them in consistent order if needed, or just pass list
+            chart = self.linker.waterfall_chart(records)
+            
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w+', suffix='.html', delete=False) as tmp:
+                chart.save(tmp.name, overwrite=True)
+                tmp.seek(0)
+                html_content = tmp.read()
+                tmp.close()
+                os.unlink(tmp.name)
+                return html_content
+                
+        except Exception as e:
+            print(f"Error generating waterfall chart: {e}")
+            import traceback
+            traceback.print_exc()
+            return None

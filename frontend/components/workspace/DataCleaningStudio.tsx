@@ -185,6 +185,21 @@ export function DataCleaningStudio({ columns, onRulesApplied }: DataCleaningStud
             )
 
             if (result.success) {
+                // Refresh dataset to get new file path
+                const { createClient } = await import('@/utils/supabase/client')
+                const supabase = createClient()
+
+                const { data: updatedDataset } = await supabase
+                    .from('datasets')
+                    .select('*')
+                    .eq('id', (activeDataset as any).id)
+                    .single()
+
+                if (updatedDataset) {
+                    const { useDatasetStore } = await import('@/lib/store/useDatasetStore')
+                    useDatasetStore.getState().setActiveDataset(updatedDataset)
+                }
+
                 // Show results in modal instead of alert
                 setCleaningResult(result)
                 setShowResults(true)
@@ -326,6 +341,8 @@ export function DataCleaningStudio({ columns, onRulesApplied }: DataCleaningStud
                                 columnsModified={cleaningResult.columnsModified}
                                 qualityMetrics={cleaningResult.qualityMetrics}
                                 cleanedFilePath={cleaningResult.cleanedFilePath}
+                                duckDB={duckDB}
+                                tableName={activeDataset?.name.replace(/[^a-zA-Z0-9_]/g, '_')}
                                 onContinue={() => {
                                     setShowResults(false)
                                     onRulesApplied?.()

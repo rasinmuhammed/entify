@@ -1,4 +1,3 @@
-
 "use client"
 
 import { useEffect, useState } from 'react'
@@ -43,6 +42,7 @@ import { ColumnDef } from "@tanstack/react-table"
 import { BlockingRuleBuilder } from "@/components/BlockingRuleBuilder"
 import { ComparisonBuilder } from "@/components/ComparisonBuilder"
 import { TrainingPanel } from "@/components/TrainingPanel"
+import { ClusterVisualization } from '@/components/matching/ClusterVisualization'
 import DataExplorer from "@/app/data/page"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -78,6 +78,9 @@ export default function ProjectPage() {
     const [results, setResults] = useState<any[]>([])
     const [isProcessing, setIsProcessing] = useState(false)
     const [dataColumns, setDataColumns] = useState<string[]>([])
+    const [globalSettings, setGlobalSettings] = useState({
+        probability_two_random_records_match: 0.0001
+    })
 
     // Auto-save blocking rules to database
     useEffect(() => {
@@ -128,7 +131,32 @@ export default function ProjectPage() {
         }
     }, [comparisons, activeProject?.id])
 
+    // Auto-save global settings
+    useEffect(() => {
+        if (activeProject?.id) {
+            const saveSettings = async () => {
+                const { error } = await supabase
+                    .from('projects')
+                    .update({
+                        global_settings: globalSettings,
+                        last_updated: new Date().toISOString()
+                    })
+                    .eq('id', activeProject.id)
 
+                if (error) {
+                    console.error('Failed to save global settings:', error)
+                    console.error('Error details:', {
+                        message: error.message,
+                        details: error.details,
+                        hint: error.hint,
+                        code: error.code
+                    })
+                }
+            }
+            const timeout = setTimeout(saveSettings, 1000)
+            return () => clearTimeout(timeout)
+        }
+    }, [globalSettings, activeProject?.id])
 
 
     // Auto-save active phase
@@ -159,14 +187,19 @@ export default function ProjectPage() {
 
     // Reload data when DuckDB becomes ready
     useEffect(() => {
-        if (duckDB && isReady && activeDataset && activeDataset.file_path) {
-            const dataset = {
-                name: activeDataset.name,
-                file_path: activeDataset.file_path  // Use file_path from activeDataset, not activeProject
+        if (duckDB && isReady && activeDataset) {
+            // Prefer cleaned file if available, otherwise use original
+            const filePath = activeDataset.cleaned_file_path || activeDataset.file_path
+
+            if (filePath) {
+                const dataset = {
+                    name: activeDataset.name,
+                    file_path: filePath
+                }
+                loadDataIntoDuckDB(dataset)
             }
-            loadDataIntoDuckDB(dataset)
         }
-    }, [duckDB, isReady, activeDataset?.file_path])
+    }, [duckDB, isReady, activeDataset?.file_path, activeDataset?.cleaned_file_path])
 
     const loadProject = async (id: string) => {
         try {
@@ -200,6 +233,10 @@ export default function ProjectPage() {
             if (project.comparison_config && Array.isArray(project.comparison_config)) {
                 setComparisons(project.comparison_config)
                 console.log('📊 Loaded comparison config:', project.comparison_config.length)
+            }
+
+            if (project.global_settings) {
+                setGlobalSettings(project.global_settings)
             }
 
             // Load active phase
@@ -352,15 +389,30 @@ export default function ProjectPage() {
                 }
             }
 
-            // Create raw backup
+            // Create original data backup (immutable)
             try {
-                await conn.query(`CREATE TABLE "${tableName}_raw" AS SELECT * FROM "${tableName}"`)
-                console.log(`✅ Created backup table: ${tableName}_raw`)
+                await conn.query(`CREATE TABLE "${tableName}_original" AS SELECT * FROM "${tableName}"`)
+                console.log(`✅ Created original data table: ${tableName}_original`)
             } catch (backupError: any) {
                 if (backupError.message?.includes('already exists')) {
-                    console.log(`ℹ️ Backup table ${tableName}_raw already exists`)
+                    console.log(`ℹ️ Original table ${tableName}_original already exists`)
                 } else {
-                    console.warn('Could not create backup table:', backupError.message)
+                    console.warn('Could not create original table:', backupError.message)
+                }
+            }
+
+            // Save original file path to database
+            if (activeProject?.id) {
+                const { error } = await supabase
+                    .from('projects')
+                    .update({
+                        original_file_path: fileName,
+                        last_updated: new Date().toISOString()
+                    })
+                    .eq('id', activeProject.id)
+
+                if (error) {
+                    console.error('Failed to save original file path:', error)
                 }
             }
 
@@ -370,7 +422,7 @@ export default function ProjectPage() {
             setIsDataLoaded(true)
         } catch (error: any) {
             console.error('Failed to load data into DuckDB:', error)
-            alert(`Failed to load data: ${error.message} `)
+            alert(`Failed to load data: ${error.message}`)
             setIsDataLoaded(false)
         } finally {
             setLoading(false)
@@ -463,13 +515,48 @@ export default function ProjectPage() {
             const settings = {
                 link_type: "dedupe_only",
                 unique_id_column_name: uniqueIdCol,
+                probability_two_random_records_match: globalSettings.probability_two_random_records_match,
                 blocking_rules_to_generate_predictions: blockingRules.length > 0
                     ? blockingRules
                     : [], // Empty list implies full comparison (or let Splink handle it)
                 comparisons: splinkComparisons
             }
 
-            console.log('🚀 Starting entity resolution with settings:', JSON.stringify(settings, null, 2))
+            console.log('\n════════════════════════════════════════════════════════════')
+            console.log('🚀 FRONTEND: Sending to Backend API')
+            console.log('════════════════════════════════════════════════════════════')
+            console.log(`📊 Dataset: ${tableToUse}`)
+            console.log(`📏 Rows: ${rows.length}`)
+            console.log(`🔑 Unique ID: ${uniqueIdCol}`)
+
+            console.log(`\n🔒 Blocking Rules (${blockingRules.length}):`)
+            if (blockingRules.length > 0) {
+                blockingRules.forEach((rule, i) => {
+                    console.log(`  ${i + 1}. ${rule}`)
+                })
+            } else {
+                console.log('  (None - Full N×N comparison)')
+            }
+
+            console.log(`\n📊 Comparisons (${comparisons.length}):`)
+            comparisons.forEach((comp, i) => {
+                console.log(`  ${i + 1}. Column: ${comp.column}`)
+                console.log(`     Method: ${comp.method}`)
+                console.log(`     Weight: ${comp.weight}`)
+                if (comp.threshold !== undefined) {
+                    console.log(`     Threshold: ${comp.threshold}`)
+                }
+            })
+
+            console.log(`\n✨ Generated Splink Comparisons (${splinkComparisons.length}):`)
+            splinkComparisons.forEach((comp, i) => {
+                const levels = comp.comparison_levels?.length || 0
+                console.log(`  ${i + 1}. ${comp.output_column_name} (${levels} levels)`)
+            })
+
+            console.log('\n📦 Full Settings Object:')
+            console.log(JSON.stringify(settings, null, 2))
+            console.log('════════════════════════════════════════════════════════════\n')
 
             // Run entity resolution
             const { runEntityResolution } = await import('@/lib/api/splinkClient')
@@ -750,6 +837,8 @@ export default function ProjectPage() {
                                                 onComparisonsChange={setComparisons}
                                                 initialComparisons={comparisons}
                                                 previewData={previewData}
+                                                onGlobalSettingsChange={setGlobalSettings}
+                                                initialGlobalSettings={globalSettings}
                                             />
                                             {dataColumns.length === 0 && (
                                                 <div className="text-sm text-muted-foreground p-4 bg-yellow-50 dark:bg-yellow-950/20 rounded border border-yellow-500/50">
@@ -785,17 +874,31 @@ export default function ProjectPage() {
                                 )}
 
                                 {activePhase === 'results' && (
-                                    <Panel>
-                                        <PanelHeader className="flex flex-row items-center justify-between">
-                                            <PanelTitle>Match Results</PanelTitle>
-                                            <div className="text-xs text-muted-foreground">
-                                                {results.length} records found
-                                            </div>
-                                        </PanelHeader>
-                                        <PanelContent>
-                                            <DataTable columns={columns} data={results} />
-                                        </PanelContent>
-                                    </Panel>
+                                    <div className="space-y-6">
+                                        <ClusterVisualization
+                                            matches={results}
+                                            threshold={0.5}
+                                            onExport={() => {
+                                                if (results.length === 0) return
+
+                                                const headers = Object.keys(results[0])
+                                                const csvRows = [
+                                                    headers.join(','),
+                                                    ...results.map(row => headers.map(h => JSON.stringify(row[h] ?? '')).join(','))
+                                                ]
+                                                const csvData = csvRows.join('\n')
+                                                const blob = new Blob([csvData], { type: 'text/csv' })
+                                                const url = window.URL.createObjectURL(blob)
+                                                const a = document.createElement('a')
+                                                a.href = url
+                                                a.download = `entify_results_${activeProject?.name}_${new Date().toISOString()}.csv`
+                                                document.body.appendChild(a)
+                                                a.click()
+                                                document.body.removeChild(a)
+                                                window.URL.revokeObjectURL(url)
+                                            }}
+                                        />
+                                    </div>
                                 )}
                             </motion.div>
                         </AnimatePresence>
