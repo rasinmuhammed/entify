@@ -9,7 +9,9 @@ import { SimpleBlockingRuleBuilder } from '@/components/blocking/SimpleBlockingR
 import { BlockingRulesExplainer } from '@/components/blocking/BlockingRulesExplainer'
 import { RuleTemplateBrowser } from '@/components/blocking/RuleTemplateBrowser'
 import { RuleImpactVisualization } from '@/components/blocking/RuleImpactVisualization'
+import { BlockingAnalyzer } from '@/components/blocking/BlockingAnalyzer'
 import { BlockingRuleTemplate } from '@/lib/blocking/ruleTemplates'
+import { AsyncDuckDB } from '@duckdb/duckdb-wasm'
 
 interface BlockingRuleBuilderProps {
     columns: string[]
@@ -17,6 +19,8 @@ interface BlockingRuleBuilderProps {
     previewData?: any[]
     initialRules?: string[]
     totalRecords?: number
+    duckDB?: AsyncDuckDB | null
+    tableName?: string
 }
 
 export function BlockingRuleBuilder({
@@ -24,7 +28,9 @@ export function BlockingRuleBuilder({
     onRulesChange,
     previewData = [],
     initialRules = [],
-    totalRecords = 1000
+    totalRecords = 1000,
+    duckDB,
+    tableName
 }: BlockingRuleBuilderProps) {
     const [mode, setMode] = useState<'simple' | 'advanced'>('simple')
     const [rules, setRules] = useState<Array<{ rule: string; template?: BlockingRuleTemplate }>>(
@@ -41,6 +47,11 @@ export function BlockingRuleBuilder({
         const newRules = [...rules, { rule: ruleString, template }]
         setRules(newRules)
         onRulesChange(newRules.map(r => r.rule))
+    }
+
+    const handleOptimize = (optimizedRules: string[]) => {
+        setRules(optimizedRules.map(r => ({ rule: r })))
+        onRulesChange(optimizedRules)
     }
 
     if (mode === 'simple') {
@@ -65,7 +76,19 @@ export function BlockingRuleBuilder({
                             columns={columns}
                             onRulesChange={handleRulesChange}
                             initialRules={initialRules}
+                            tableName={tableName}
                         />
+
+                        {/* Blocking Analyzer */}
+                        {rules.filter(r => r.rule).length > 0 && duckDB && tableName && (
+                            <BlockingAnalyzer
+                                blockingRules={rules.map(r => r.rule)}
+                                datasetSize={totalRecords}
+                                duckDB={duckDB}
+                                tableName={tableName}
+                                onOptimize={handleOptimize}
+                            />
+                        )}
 
                         {/* Switch to Advanced */}
                         <div className="flex justify-center">
@@ -126,9 +149,9 @@ export function BlockingRuleBuilder({
                         <Zap className="h-4 w-4" />
                         My Rules ({rules.length})
                     </TabsTrigger>
-                    <TabsTrigger value="impact" className="gap-2">
+                    <TabsTrigger value="analyzer" className="gap-2">
                         <BarChart3 className="h-4 w-4" />
-                        Impact
+                        Analyzer
                     </TabsTrigger>
                 </TabsList>
 
@@ -153,11 +176,27 @@ export function BlockingRuleBuilder({
                     </Card>
                 </TabsContent>
 
-                <TabsContent value="impact">
-                    <RuleImpactVisualization
-                        totalRecords={totalRecords}
-                        rules={rules}
-                    />
+                <TabsContent value="analyzer">
+                    {duckDB && tableName && rules.filter(r => r.rule).length > 0 ? (
+                        <BlockingAnalyzer
+                            blockingRules={rules.map(r => r.rule)}
+                            datasetSize={totalRecords}
+                            duckDB={duckDB}
+                            tableName={tableName}
+                            onOptimize={handleOptimize}
+                        />
+                    ) : (
+                        <Card>
+                            <CardContent className="py-12 text-center">
+                                <BarChart3 className="h-12 w-12 mx-auto mb-3 text-muted-foreground opacity-50" />
+                                <p className="text-muted-foreground mb-2">
+                                    {!duckDB || !tableName
+                                        ? 'Database not ready for analysis'
+                                        : 'Add blocking rules to see performance analysis'}
+                                </p>
+                            </CardContent>
+                        </Card>
+                    )}
                 </TabsContent>
             </Tabs>
         </div>

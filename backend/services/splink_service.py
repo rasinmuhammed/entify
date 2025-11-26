@@ -44,6 +44,7 @@ class EntityResolutionRequest(BaseModel):
     settings: SplinkSettings
     threshold: float = Field(default=0.5, ge=0.0, le=1.0)
     table_name: Optional[str] = Field(default="input_data")
+    primary_key_column: Optional[str] = Field(default=None, description="Name of the unique identifier column")
 
 
 class EntityResolutionResponse(BaseModel):
@@ -130,7 +131,8 @@ class SplinkService:
         data_csv: str,
         settings: Dict[str, Any],
         threshold: float = 0.5,
-        table_name: str = "input_data"
+        table_name: str = "input_data",
+        primary_key_column: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Run entity resolution with Splink
@@ -140,6 +142,7 @@ class SplinkService:
             settings: Splink settings dictionary
             threshold: Match probability threshold
             table_name: Name of the table in DuckDB
+            primary_key_column: Name of the unique identifier column
             
         Returns:
             Dictionary with status and results
@@ -171,7 +174,7 @@ class SplinkService:
                 
             # Helper to check if a column is the unique ID column
             def _is_id_column(col_name: str) -> bool:
-                return col_name == settings.get("unique_id_column_name", "id")
+                return col_name == (primary_key_column or settings.get("unique_id_column_name", "id"))
 
             # Convert comparisons to Splink library format
             if isinstance(settings.get("comparisons"), list):
@@ -204,14 +207,45 @@ class SplinkService:
             if "blocking_rules" in settings:
                 del settings["blocking_rules"]
             
-            # Run Splink resolution
-            predictions_df = self.engine.run_resolution(table_name, settings)
+            # Run Splink resolution with primary key
+            predictions_df = self.engine.run_resolution(table_name, settings, primary_key_column=primary_key_column)
+            
+            # Get clusters with transitive closure using Splink's built-in clustering
+            clusters_df = None
+            cluster_lookup = {}
+            try:
+                print(f"🔗 Performing transitive closure clustering at threshold {threshold}...")
+                clusters_df = self.engine.linker.clustering.cluster_pairwise_predictions_at_threshold(
+                    self.engine.predictions, 
+                    threshold_match_probability=threshold
+                )
+                # Create lookup dict: entity_id -> cluster_id
+                clusters_pdf = clusters_df.as_pandas_dataframe()
+                for _, row in clusters_pdf.iterrows():
+                    entity_id = str(row.get('unique_id') or row.get('id'))
+                    cluster_id = str(row.get('cluster_id'))
+                    cluster_lookup[entity_id] = cluster_id
+                print(f"✅ Clustered {len(cluster_lookup)} entities into {len(set(cluster_lookup.values()))} clusters")
+            except Exception as e:
+                print(f"⚠️ Clustering failed: {e}")
             
             # Filter by threshold
             matches = predictions_df[predictions_df['match_probability'] >= threshold]
             
-            # Convert to JSON-serializable format
+            # Convert to JSON-serializable format and add cluster_id
             matches_list = matches.to_dict(orient='records')
+            
+            # Add cluster_id to matches if available
+            if cluster_lookup:
+                for match in matches_list:
+                    left_id = str(match.get('unique_id_l') or match.get('left_id'))
+                    right_id = str(match.get('unique_id_r') or match.get('right_id'))
+                    
+                    # Add cluster_id to both entities
+                    if left_id in cluster_lookup:
+                        match['left_cluster_id'] = cluster_lookup[left_id]
+                    if right_id in cluster_lookup:
+                        match['right_cluster_id'] = cluster_lookup[right_id]
             
             # Get clusters (optional)
             clusters = None
@@ -219,7 +253,7 @@ class SplinkService:
                 cluster_stats = self.engine.get_cluster_stats(threshold)
                 clusters = cluster_stats
             except Exception as e:
-                print(f"⚠️  Clustering failed: {e}")
+                print(f"⚠️  Clustering stats failed: {e}")
             
             # Cleanup
             import os
@@ -232,8 +266,10 @@ class SplinkService:
                 "status": "success",
                 "matches": matches_list,
                 "total_pairs": len(matches_list),
+                "total_clusters": len(set(cluster_lookup.values())) if cluster_lookup else None,
                 "execution_time_ms": round(execution_time_ms, 2),
-                "clusters": clusters
+                "clusters": clusters,
+                "cluster_lookup": cluster_lookup if cluster_lookup else None
             }
             
         except Exception as e:

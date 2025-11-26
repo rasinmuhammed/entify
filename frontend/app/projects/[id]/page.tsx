@@ -26,7 +26,8 @@ import {
     Save,
     MoreVertical,
     Trash2,
-    Edit2
+    Edit2,
+    FlaskConical
 } from "lucide-react"
 import { handleRenameProject, handleDeleteProject } from "@/lib/projectManagement"
 import {
@@ -43,11 +44,15 @@ import { BlockingRuleBuilder } from "@/components/BlockingRuleBuilder"
 import { ComparisonBuilder } from "@/components/ComparisonBuilder"
 import { TrainingPanel } from "@/components/TrainingPanel"
 import { ClusterVisualization } from '@/components/matching/ClusterVisualization'
+import { MatchingInsightsPanel } from '@/components/matching/MatchingInsightsPanel'
 import DataExplorer from "@/app/data/page"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { DataManager } from "@/components/workspace/DataManager"
 import { DataCleaningStudio } from "@/components/workspace/DataCleaningStudio"
+import { PrimaryKeySelector } from "@/components/workspace/PrimaryKeySelector"
+import { ModelEvaluationDashboard } from "@/components/charts/ModelEvaluationDashboard"
+import { LaboratoryDashboard } from "@/components/laboratory/LaboratoryDashboard"
 
 
 const PHASES = [
@@ -56,6 +61,7 @@ const PHASES = [
     { id: 'blocking', label: 'Blocking Rules', icon: Database },
     { id: 'comparisons', label: 'Comparisons', icon: GitCompare },
     { id: 'training', label: 'Training', icon: BrainCircuit },
+    { id: 'laboratory', label: 'Laboratory', icon: FlaskConical },
     { id: 'results', label: 'Results', icon: TableProperties },
 ]
 
@@ -70,14 +76,18 @@ export default function ProjectPage() {
 
     const [loading, setLoading] = useState(true)
     const [activePhase, setActivePhase] = useState('profile')
+    const [clusterSizeFilter, setClusterSizeFilter] = useState<{ min: number, max: number } | null>(null)
 
-    // Project State
+    // Project State (persisted to database)
     const [blockingRules, setBlockingRules] = useState<string[]>([])
     const [comparisons, setComparisons] = useState<any[]>([])
+    const [threshold, setThreshold] = useState(0.5)
     const [modelTrained, setModelTrained] = useState(false)
     const [results, setResults] = useState<any[]>([])
     const [isProcessing, setIsProcessing] = useState(false)
     const [dataColumns, setDataColumns] = useState<string[]>([])
+    const [primaryKey, setPrimaryKey] = useState<string | null>(activeDataset?.primary_key_column || null)
+    const [isPrimaryKeyConfirmed, setIsPrimaryKeyConfirmed] = useState(false)
     const [globalSettings, setGlobalSettings] = useState({
         probability_two_random_records_match: 0.0001
     })
@@ -114,13 +124,15 @@ export default function ProjectPage() {
                     const { error } = await supabase
                         .from('projects')
                         .update({
-                            comparison_config: comparisons,
+                            comparisons: comparisons,  // Use new column name
                             last_updated: new Date().toISOString()
                         })
                         .eq('id', activeProject.id)
 
                     if (!error) {
                         console.log('✅ Comparisons auto-saved')
+                    } else {
+                        console.warn('Comparisons save failed (migration pending?):', error)
                     }
                 } catch (e) {
                     console.error('Failed to auto-save comparisons:', e)
@@ -158,6 +170,28 @@ export default function ProjectPage() {
         }
     }, [globalSettings, activeProject?.id])
 
+    // Auto-save threshold
+    useEffect(() => {
+        if (activeProject?.id && threshold !== 0.5) {  // Only save if changed from default
+            const saveThreshold = async () => {
+                const { error } = await supabase
+                    .from('projects')
+                    .update({
+                        threshold: threshold,
+                        last_updated: new Date().toISOString()
+                    })
+                    .eq('id', activeProject.id)
+
+                if (!error) {
+                    console.log('✅ Threshold auto-saved:', threshold)
+                } else {
+                    console.warn('Threshold save failed (migration pending?):', error)
+                }
+            }
+            const timeout = setTimeout(saveThreshold, 1000)
+            return () => clearTimeout(timeout)
+        }
+    }, [threshold, activeProject?.id])
 
     // Auto-save active phase
     useEffect(() => {
@@ -172,18 +206,98 @@ export default function ProjectPage() {
                     .eq('id', activeProject.id)
 
                 if (error) {
-                    console.warn('Failed to save active phase (column might be missing):', error.message)
+                    console.warn('Phase save failed (migration pending?):', error)
+                } else {
+                    console.log('✅ Active phase saved:', activePhase)
                 }
             }
-            savePhase()
+            const timeout = setTimeout(savePhase, 500)
+            return () => clearTimeout(timeout)
         }
     }, [activePhase, activeProject?.id])
+
+    // Save primary key to database
+    const savePrimaryKey = async (columnName: string) => {
+        if (!activeDataset?.id) return
+
+        try {
+            const { error } = await supabase
+                .from('datasets')
+                .update({
+                    primary_key_column: columnName
+                })
+                .eq('id', activeDataset.id)
+
+            if (error) {
+                console.warn('Database save failed (column may not exist yet):', error)
+                console.log('💡 Storing primary key in localStorage as fallback')
+
+                // Fallback: Store in localStorage until migration is applied
+                const storageKey = `primary_key_${activeDataset.id}`
+                localStorage.setItem(storageKey, columnName)
+
+                // Show user-friendly message
+                console.log('⚠️ Note: To persist primary key across sessions, apply the database migration:')
+                console.log('   Run this SQL in Supabase dashboard:')
+                console.log('   ALTER TABLE datasets ADD COLUMN IF NOT EXISTS primary_key_column TEXT;')
+            } else {
+                console.log('✅ Primary key saved to database:', columnName)
+            }
+
+            // Update local state regardless of database save
+            setPrimaryKey(columnName)
+            setIsPrimaryKeyConfirmed(true)
+            setActiveDataset({
+                ...activeDataset,
+                primary_key_column: columnName
+            })
+
+        } catch (error) {
+            console.error('Error saving primary key:', error)
+
+            // Even if error, store locally and continue
+            if (activeDataset?.id) {
+                const storageKey = `primary_key_${activeDataset.id}`
+                localStorage.setItem(storageKey, columnName)
+
+                setPrimaryKey(columnName)
+                setIsPrimaryKeyConfirmed(true)
+                setActiveDataset({
+                    ...activeDataset,
+                    primary_key_column: columnName
+                })
+
+                console.log('✅ Primary key stored locally:', columnName)
+            }
+        }
+    }
 
     useEffect(() => {
         if (params.id) {
             loadProject(params.id as string)
         }
     }, [params.id])
+
+    // Load primary key from database or localStorage
+    useEffect(() => {
+        if (activeDataset?.id) {
+            // Try database first
+            if (activeDataset.primary_key_column) {
+                setPrimaryKey(activeDataset.primary_key_column)
+                setIsPrimaryKeyConfirmed(true)
+                console.log('✅ Loaded primary key from database:', activeDataset.primary_key_column)
+            } else {
+                // Fallback to localStorage
+                const storageKey = `primary_key_${activeDataset.id}`
+                const storedKey = localStorage.getItem(storageKey)
+                if (storedKey) {
+                    setPrimaryKey(storedKey)
+                    setIsPrimaryKeyConfirmed(true)
+                    console.log('✅ Loaded primary key from localStorage:', storedKey)
+                }
+            }
+        }
+    }, [activeDataset?.id, activeDataset?.primary_key_column])
 
     // Reload data when DuckDB becomes ready
     useEffect(() => {
@@ -230,13 +344,22 @@ export default function ProjectPage() {
                 console.log('📋 Loaded blocking rules:', project.blocking_rules.length)
             }
 
-            if (project.comparison_config && Array.isArray(project.comparison_config)) {
-                setComparisons(project.comparison_config)
-                console.log('📊 Loaded comparison config:', project.comparison_config.length)
+            // Try new column name first, fallback to old
+            const comparisonsData = project.comparisons || project.comparison_config
+            if (comparisonsData && Array.isArray(comparisonsData)) {
+                setComparisons(comparisonsData)
+                console.log('📊 Loaded comparisons:', comparisonsData.length)
             }
 
             if (project.global_settings) {
                 setGlobalSettings(project.global_settings)
+                console.log('⚙️  Loaded global settings')
+            }
+
+            // Load threshold
+            if (project.threshold !== undefined && project.threshold !== null) {
+                setThreshold(project.threshold)
+                console.log('🎯 Loaded threshold:', project.threshold)
             }
 
             // Load active phase
@@ -295,8 +418,17 @@ export default function ProjectPage() {
                 // Normalize table name
                 const tableName = dataset.name.replace(/[^a-zA-Z0-9_]/g, '_')
 
+                // Check if cleaned table exists
+                const cleanedCheck = await conn.query(`
+                    SELECT count(*) as cnt FROM information_schema.tables 
+                    WHERE table_name = '${tableName}_cleaned'
+                `)
+                const cleanedExists = Number(cleanedCheck.toArray()[0]['cnt']) > 0
+                const tableToQuery = cleanedExists ? `${tableName}_cleaned` : tableName
+                console.log(`Using ${tableToQuery} for preview data`)
+
                 // Fetch preview data to populate frontend state
-                const preview = await conn.query(`SELECT * FROM "${tableName}" LIMIT 5`)
+                const preview = await conn.query(`SELECT * FROM "${tableToQuery}" LIMIT 5`)
                 const previewRows = preview.toArray().map((r: any) => {
                     const obj = r.toJSON()
                     // Convert BigInt to Number
@@ -558,9 +690,14 @@ export default function ProjectPage() {
             console.log(JSON.stringify(settings, null, 2))
             console.log('════════════════════════════════════════════════════════════\n')
 
-            // Run entity resolution
+            // Run entity resolution with primary key
             const { runEntityResolution } = await import('@/lib/api/splinkClient')
-            const response = await runEntityResolution(csvData, settings, 0.5)
+            const response = await runEntityResolution(
+                csvData,
+                settings,
+                0.5,
+                primaryKey || undefined  // Pass the user-selected primary key
+            )
 
             if (response.status === 'success') {
                 setResults(response.matches)
@@ -600,12 +737,13 @@ export default function ProjectPage() {
             {/* Sidebar */}
             <div className="w-64 border-r border-border bg-card flex flex-col shadow-sm">
                 {/* Sidebar Header */}
-                <div className="h-14 flex items-center px-4 border-b border-border">
-                    <div className="flex items-center gap-2 font-semibold text-lg">
-                        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-sm">
-                            E
-                        </div>
-                        <span>Entify</span>
+                <div className="h-14 flex items-center justify-center border-b border-border">
+                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 via-purple-500 to-purple-600 p-1.5 shadow-md">
+                        <svg viewBox="0 0 24 24" fill="none" className="w-full h-full text-white">
+                            <circle cx="7" cy="17" r="3" stroke="currentColor" strokeWidth="2" />
+                            <circle cx="17" cy="7" r="3" stroke="currentColor" strokeWidth="2" />
+                            <path d="M9.5 14.5L14.5 9.5" stroke="currentColor" strokeWidth="2" />
+                        </svg>
                     </div>
                 </div>
 
@@ -687,14 +825,41 @@ export default function ProjectPage() {
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem
                                     className="text-destructive focus:text-destructive"
-                                    onClick={() => {
+                                    onClick={async () => {
                                         if (activeProject) {
-                                            handleDeleteProject(activeProject.id, router)
+                                            const confirmed = confirm(
+                                                `⚠️ Delete Project "${activeProject.name}"?\n\n` +
+                                                `This will permanently delete:\n` +
+                                                `• All project data and configurations\n` +
+                                                `• Blocking rules and comparisons\n` +
+                                                `• Training data and results\n\n` +
+                                                `This action cannot be undone!`
+                                            )
+                                            if (confirmed) {
+                                                setIsDeleting(true)
+                                                try {
+                                                    await handleDeleteProject(activeProject.id, router)
+                                                } catch (error) {
+                                                    console.error('Failed to delete project:', error)
+                                                    alert('Failed to delete project. Please try again.')
+                                                    setIsDeleting(false)
+                                                }
+                                            }
                                         }
                                     }}
+                                    disabled={isDeleting}
                                 >
-                                    <Trash2 className="w-4 h-4 mr-2" />
-                                    Delete Project
+                                    {isDeleting ? (
+                                        <>
+                                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                            Deleting...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Trash2 className="w-4 h-4 mr-2" />
+                                            Delete Project
+                                        </>
+                                    )}
                                 </DropdownMenuItem>
                             </DropdownMenuContent>
                         </DropdownMenu>
@@ -735,11 +900,24 @@ export default function ProjectPage() {
                             >
                                 {activePhase === 'profile' && (
                                     <div className="space-y-6">
+                                        {/* Primary Key Selection - Must be done first */}
+                                        {!isPrimaryKeyConfirmed && dataColumns.length > 0 && (
+                                            <PrimaryKeySelector
+                                                columns={activeDataset?.columns || []}
+                                                currentPrimaryKey={primaryKey || undefined}
+                                                onPrimaryKeySelected={savePrimaryKey}
+                                            />
+                                        )}
+
                                         {isDataLoaded ? (
                                             <DataManager
                                                 tableName={activeDataset?.name.replace(/[^a-zA-Z0-9_]/g, '_') || ''}
                                                 onDataLoaded={(rowCount, cols) => {
                                                     setDataColumns(cols)
+                                                    // Auto-confirm if primary key was already set
+                                                    if (activeDataset?.primary_key_column) {
+                                                        setIsPrimaryKeyConfirmed(true)
+                                                    }
                                                 }}
                                             />
                                         ) : (
@@ -751,7 +929,10 @@ export default function ProjectPage() {
                                             </div>
                                         )}
                                         <div className="flex justify-end">
-                                            <Button onClick={() => setActivePhase('cleaning')} disabled={!isDataLoaded}>
+                                            <Button
+                                                onClick={() => setActivePhase('cleaning')}
+                                                disabled={!isDataLoaded || !isPrimaryKeyConfirmed}
+                                            >
                                                 Next: Data Cleaning <ArrowRight className="w-4 h-4 ml-2" />
                                             </Button>
                                         </div>
@@ -763,8 +944,9 @@ export default function ProjectPage() {
                                         <DataCleaningStudio
                                             columns={dataColumns}
                                             onRulesApplied={() => {
-                                                // Refresh the data
-                                                if (activeDataset?.name) {
+                                                // Refresh the data to pick up new cleaned columns
+                                                if (activeDataset) {
+                                                    loadDataIntoDuckDB(activeDataset)
                                                     setActivePhase('blocking')
                                                 }
                                             }}
@@ -788,18 +970,21 @@ export default function ProjectPage() {
                                         <PanelContent className="space-y-6">
                                             <BlockingRuleBuilder
                                                 columns={
-                                                    // Try multiple sources for columns
-                                                    (activeDataset?.columns && activeDataset.columns.length > 0)
-                                                        ? activeDataset.columns.map(c => typeof c === 'string' ? c : c.column)
-                                                        : (previewData && previewData.length > 0)
-                                                            ? Object.keys(previewData[0])
-                                                            : dataColumns.length > 0
-                                                                ? dataColumns
+                                                    // Try multiple sources for columns, prioritizing live data
+                                                    dataColumns.length > 0
+                                                        ? dataColumns
+                                                        : (activeDataset?.columns && activeDataset.columns.length > 0)
+                                                            ? activeDataset.columns.map(c => typeof c === 'string' ? c : c.column)
+                                                            : (previewData && previewData.length > 0)
+                                                                ? Object.keys(previewData[0])
                                                                 : []
                                                 }
                                                 onRulesChange={setBlockingRules}
                                                 initialRules={blockingRules}
                                                 previewData={previewData}
+                                                totalRecords={activeDataset?.row_count || previewData?.length || 1000}
+                                                duckDB={duckDB}
+                                                tableName={activeDataset?.table_name || activeDataset?.name?.replace(/[^a-zA-Z0-9_]/g, '_')}
                                             />
                                             {((!activeDataset?.columns || activeDataset.columns.length === 0) &&
                                                 (!previewData || previewData.length === 0) &&
@@ -860,44 +1045,112 @@ export default function ProjectPage() {
 
                                 {activePhase === 'training' && (
                                     <div className="space-y-6">
-                                        <TrainingPanel onTrainingComplete={() => setModelTrained(true)} />
-                                        <div className="flex justify-end">
-                                            <Button onClick={handleRunMatch} disabled={!modelTrained}>
+                                        <TrainingPanel
+                                            onTrainingComplete={() => setModelTrained(true)}
+                                            globalSettings={globalSettings}
+                                        />
+                                        <div className="flex justify-end gap-3">
+                                            <Button
+                                                onClick={handleRunMatch}
+                                                disabled={isProcessing}
+                                                variant="default"
+                                            >
                                                 {isProcessing ? (
-                                                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Running Predictions...</>
+                                                    <>🔄 Processing...</>
                                                 ) : (
-                                                    <>Run Predictions & View Results <ArrowRight className="w-4 h-4 ml-2" /></>
+                                                    <>▶️ Run Pipeline</>
                                                 )}
+                                            </Button>
+                                            <Button onClick={() => setActivePhase('laboratory')} disabled={!modelTrained} variant="outline">
+                                                Next: Laboratory <ArrowRight className="w-4 h-4 ml-2" />
                                             </Button>
                                         </div>
                                     </div>
                                 )}
 
+                                {activePhase === 'laboratory' && (
+                                    <div className="space-y-6">
+                                        <LaboratoryDashboard
+                                            onBackToTraining={() => setActivePhase('training')}
+                                            onSkipToResults={handleRunMatch}
+                                            isProcessing={isProcessing}
+                                            blockingRules={blockingRules}
+                                        />
+                                    </div>
+                                )}
+
                                 {activePhase === 'results' && (
                                     <div className="space-y-6">
-                                        <ClusterVisualization
-                                            matches={results}
-                                            threshold={0.5}
-                                            onExport={() => {
-                                                if (results.length === 0) return
+                                        <Tabs defaultValue="clusters" className="w-full">
+                                            <TabsList className="grid w-full max-w-md grid-cols-2">
+                                                <TabsTrigger value="clusters">Clusters & Insights</TabsTrigger>
+                                                <TabsTrigger value="evaluation">Model Evaluation</TabsTrigger>
+                                            </TabsList>
 
-                                                const headers = Object.keys(results[0])
-                                                const csvRows = [
-                                                    headers.join(','),
-                                                    ...results.map(row => headers.map(h => JSON.stringify(row[h] ?? '')).join(','))
-                                                ]
-                                                const csvData = csvRows.join('\n')
-                                                const blob = new Blob([csvData], { type: 'text/csv' })
-                                                const url = window.URL.createObjectURL(blob)
-                                                const a = document.createElement('a')
-                                                a.href = url
-                                                a.download = `entify_results_${activeProject?.name}_${new Date().toISOString()}.csv`
-                                                document.body.appendChild(a)
-                                                a.click()
-                                                document.body.removeChild(a)
-                                                window.URL.revokeObjectURL(url)
-                                            }}
-                                        />
+                                            <TabsContent value="clusters" className="mt-6 space-y-6">
+                                                {/* Statistics & Insights Panel */}
+                                                <MatchingInsightsPanel
+                                                    tableName="input_data"
+                                                    threshold={0.9}
+                                                    onClusterSizeClick={setClusterSizeFilter}
+                                                />
+
+                                                {/* Cluster Visualization */}
+                                                <ClusterVisualization
+                                                    matches={results}
+                                                    threshold={0.5}
+                                                    duckDB={duckDB}
+                                                    originalTableName={activeDataset ? `${activeDataset.name.replace(/[^a-zA-Z0-9_]/g, '_')}_original` : undefined}
+                                                    filterSize={clusterSizeFilter}
+                                                    primaryKeyColumn={primaryKey || undefined}
+                                                    onExport={async () => {
+                                                        if (!activeDataset) return
+
+                                                        try {
+                                                            const tableName = `${activeDataset.name.replace(/[^a-zA-Z0-9_]/g, '_')}_original`
+                                                            const idColumn = primaryKey || 'unique_id'
+
+                                                            console.log('📥 Exporting enriched clusters...')
+
+                                                            const response = await fetch(
+                                                                `http://localhost:8000/api/export-clusters?table_name=${tableName}&threshold=${threshold}&id_column=${idColumn}`
+                                                            )
+
+                                                            if (!response.ok) {
+                                                                const error = await response.json()
+                                                                throw new Error(error.detail || 'Export failed')
+                                                            }
+
+                                                            const csvData = await response.text()
+                                                            const blob = new Blob([csvData], { type: 'text/csv' })
+                                                            const url = URL.createObjectURL(blob)
+                                                            const a = document.createElement('a')
+                                                            a.href = url
+                                                            a.download = `${activeProject?.name || 'entify'}_clusters_with_data.csv`
+                                                            document.body.appendChild(a)
+                                                            a.click()
+                                                            document.body.removeChild(a)
+                                                            URL.revokeObjectURL(url)
+
+                                                            console.log('✅ Enriched clusters exported successfully')
+                                                        } catch (error) {
+                                                            console.error('Export failed:', error)
+                                                            alert(`Export failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+                                                        }
+                                                    }}
+                                                />
+                                            </TabsContent>
+
+                                            <TabsContent value="evaluation" className="mt-6">
+                                                <ModelEvaluationDashboard
+                                                    currentThreshold={0.5}
+                                                    onThresholdChange={(newThreshold) => {
+                                                        console.log('Threshold changed to:', newThreshold)
+                                                        // TODO: Re-run matching with new threshold
+                                                    }}
+                                                />
+                                            </TabsContent>
+                                        </Tabs>
                                     </div>
                                 )}
                             </motion.div>

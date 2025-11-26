@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { GlassCard } from '@/components/ui/glass-card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -15,7 +16,8 @@ import {
     Maximize2,
     Link as LinkIcon,
     Eye,
-    EyeOff
+    EyeOff,
+    AlertTriangle
 } from 'lucide-react'
 import { SplinkVisualization } from './SplinkVisualization'
 import { DetailedClusterView } from './DetailedClusterView'
@@ -51,6 +53,8 @@ interface ClusterVisualizationProps {
     onExport?: () => void
     duckDB?: AsyncDuckDB | null  // For fetching original data
     originalTableName?: string
+    filterSize?: { min: number; max: number } | null
+    primaryKeyColumn?: string  // User-confirmed primary key column
 }
 
 export function ClusterVisualization({
@@ -58,7 +62,9 @@ export function ClusterVisualization({
     threshold = 0.5,
     onExport,
     duckDB,
-    originalTableName
+    originalTableName,
+    filterSize,
+    primaryKeyColumn
 }: ClusterVisualizationProps) {
     const [minScore, setMinScore] = useState(threshold)
     const [selectedCluster, setSelectedCluster] = useState<number | null>(null)
@@ -66,6 +72,44 @@ export function ClusterVisualization({
     const [showDetails, setShowDetails] = useState(true)
     const [showClusterDetail, setShowClusterDetail] = useState(false)
     const [originalDataMap, setOriginalDataMap] = useState<Map<string, Entity>>(new Map())
+    const [tableData, setTableData] = useState<any[]>([])
+    const [isLoadingTable, setIsLoadingTable] = useState(false)
+    const [error, setError] = useState<string | null>(null)
+
+    // Fetch table data when tab is selected
+    useEffect(() => {
+        if (viewMode === 'table' && tableData.length === 0 && originalTableName) {
+            const fetchTableData = async () => {
+                setIsLoadingTable(true)
+                setError(null)
+                try {
+                    const params = new URLSearchParams({
+                        table_name: originalTableName,
+                        threshold: minScore.toString(),
+                        id_column: primaryKeyColumn || 'unique_id'
+                    })
+                    const response = await fetch(`http://localhost:8000/api/clusters?${params}`)
+                    if (!response.ok) {
+                        const errorText = await response.text()
+                        try {
+                            const errorJson = JSON.parse(errorText)
+                            throw new Error(errorJson.detail || 'Failed to fetch cluster data')
+                        } catch (e) {
+                            throw new Error(`Failed to fetch cluster data: ${response.status} ${errorText}`)
+                        }
+                    }
+                    const data = await response.json()
+                    setTableData(data)
+                } catch (error: any) {
+                    console.error('Error fetching table data:', error)
+                    setError(error.message || 'An unexpected error occurred')
+                } finally {
+                    setIsLoadingTable(false)
+                }
+            }
+            fetchTableData()
+        }
+    }, [viewMode, originalTableName, minScore, primaryKeyColumn, tableData.length])
 
     // Parse matches into structured format
     const matches = useMemo(() => {
@@ -87,31 +131,41 @@ export function ClusterVisualization({
                 }
             })
 
-            // Extract IDs with better fallback logic
+            // Extract IDs - prioritize user-confirmed primary key column
             const left_id = String(
-                m.unique_id_l ||
-                left_entity.unique_id ||
-                left_entity.id ||
-                m.id_l ||
-                `left_${Math.random()}` // Fallback to prevent missing IDs
+                (primaryKeyColumn && left_entity[primaryKeyColumn]) ||
+                (m.unique_id_l ??
+                    left_entity.unique_id ??
+                    left_entity.id ??
+                    left_entity.id1 ??
+                    m.id_l ??
+                    '') // Empty string if no ID found
             )
 
             const right_id = String(
-                m.unique_id_r ||
-                right_entity.unique_id ||
-                right_entity.id ||
-                m.id_r ||
-                `right_${Math.random()}` // Fallback to prevent missing IDs
+                (primaryKeyColumn && right_entity[primaryKeyColumn]) ||
+                (m.unique_id_r ??
+                    right_entity.unique_id ??
+                    right_entity.id ??
+                    right_entity.id1 ??
+                    m.id_r ??
+                    '') // Empty string if no ID found
             )
+
+            // Skip matches without valid IDs
+            if (!left_id || !right_id) {
+                console.warn('Match missing valid IDs, skipping:', m)
+                return null
+            }
 
             return {
                 left_id,
                 right_id,
                 match_probability: m.match_probability,
-                left_entity: { ...left_entity, _id: left_id }, // Add ID to entity
+                left_entity: { ...left_entity, _id: left_id },
                 right_entity: { ...right_entity, _id: right_id }
             }
-        })
+        }).filter((match): match is Match => match !== null) // Remove null matches
     }, [rawMatches])
 
     // Build clusters from matches using union-find algorithm
@@ -219,8 +273,27 @@ export function ClusterVisualization({
             })
         })
 
-        return clusterArray.sort((a, b) => b.size - a.size)
-    }, [matches, minScore])
+        // Debug logging to track cluster formation
+        console.log('🔍 Cluster Formation Debug:', {
+            totalMatches: filteredMatches.length,
+            totalClusters: clusterArray.length,
+            clusterSizes: clusterArray.map(c => c.size),
+            largestCluster: Math.max(...clusterArray.map(c => c.size), 0),
+            clustersWithMultipleEntities: clusterArray.filter(c => c.size > 2).length,
+            exampleLargeCluster: clusterArray.find(c => c.size > 2) ? {
+                size: clusterArray.find(c => c.size > 2)!.size,
+                entityIds: clusterArray.find(c => c.size > 2)!.entityIds,
+                links: clusterArray.find(c => c.size > 2)!.links.length
+            } : 'None'
+        })
+
+        return clusterArray
+            .filter(c => {
+                if (!filterSize) return true
+                return c.size >= filterSize.min && c.size <= filterSize.max
+            })
+            .sort((a, b) => b.size - a.size)
+    }, [matches, minScore, filterSize])
 
     const stats = {
         totalClusters: clusters.length,
@@ -244,23 +317,84 @@ export function ClusterVisualization({
         try {
             const conn = await duckDB.connect()
 
+            // Use user-confirmed primary key if available
+            let idColumn: string | undefined
+
+            if (primaryKeyColumn) {
+                // Verify the column exists in the table
+                const info = await conn.query(`PRAGMA table_info('${originalTableName}')`)
+                const columns = info.toArray().map((r: any) => r.name)
+
+                if (columns.includes(primaryKeyColumn)) {
+                    idColumn = primaryKeyColumn
+                    console.log(`✅ Using confirmed primary key: ${primaryKeyColumn}`)
+                } else {
+                    console.warn(`⚠️ Confirmed primary key "${primaryKeyColumn}" not found in table, auto-detecting...`)
+                }
+            }
+
+            // Auto-detect if not confirmed or verification failed
+            if (!idColumn) {
+                const info = await conn.query(`PRAGMA table_info('${originalTableName}')`)
+                const columns = info.toArray().map((r: any) => r.name)
+
+                // Try to find the ID column with various common names
+                const candidates = ['unique_id', 'id', '_id', 'entity_id', 'record_id', 'id1', 'id_l']
+                idColumn = candidates.find(c => columns.includes(c))
+
+                if (!idColumn) {
+                    // Try case-insensitive search
+                    idColumn = columns.find((c: string) => ['unique_id', 'id', '_id'].includes(c.toLowerCase()))
+                }
+
+                if (!idColumn) {
+                    // Try to find any column ending in _id or starting with id
+                    idColumn = columns.find((c: string) => c.toLowerCase().endsWith('_id') || c.toLowerCase().startsWith('id'))
+                }
+
+                if (!idColumn && columns.length > 0) {
+                    // Last resort: use the first column
+                    idColumn = columns[0]
+                    console.warn(`Could not detect ID column, using first column: ${idColumn}`)
+                }
+            }
+
             // Get all unique entity IDs from clusters
             const allEntityIds = new Set<string>()
             clusters.forEach(cluster => {
-                cluster.entityIds.forEach(id => allEntityIds.add(id))
+                cluster.entityIds.forEach(id => {
+                    // Only add valid-looking IDs (no random/generated ones)
+                    if (id && !id.startsWith('left_') && !id.startsWith('right_')) {
+                        allEntityIds.add(id)
+                    }
+                })
             })
+
+            if (allEntityIds.size === 0) {
+                console.log('No valid entity IDs to fetch original data')
+                await conn.close()
+                return
+            }
 
             // Fetch original data for these IDs
             const idList = Array.from(allEntityIds).map(id => `'${id}'`).join(',')
-            const query = `SELECT * FROM ${originalTableName} WHERE id IN (${idList})`
+
+            // Handle empty list
+            if (idList.length === 0) {
+                await conn.close()
+                return
+            }
+
+            const query = `SELECT * FROM ${originalTableName} WHERE ${idColumn} IN (${idList})`
 
             const result = await conn.query(query)
-            const rows = result.toArray().map(row => row.toJSON())
+            const rows = result.toArray().map((row: any) => row.toJSON())
 
             // Build map of ID -> original entity
             const dataMap = new Map<string, Entity>()
-            rows.forEach(row => {
-                const id = String(row.id || row.unique_id)
+            rows.forEach((row: any) => {
+                // Use the detected ID column
+                const id = String(row[idColumn!] || row.id || row.unique_id)
                 dataMap.set(id, row)
             })
 
@@ -424,6 +558,11 @@ export function ClusterVisualization({
                                         <Badge variant="outline">
                                             {cluster.size} entities
                                         </Badge>
+                                        {cluster.cluster_id && (
+                                            <Badge variant="outline" className="font-mono text-xs text-purple-600 dark:text-purple-400">
+                                                {cluster.cluster_id.substring(0, 8)}...
+                                            </Badge>
+                                        )}
                                     </div>
                                     <div className="text-sm">
                                         Avg: <span className="font-semibold">{(cluster.avgScore * 100).toFixed(0)}%</span>
@@ -436,9 +575,10 @@ export function ClusterVisualization({
                                             // Get original data if available
                                             const displayEntity = getEntityDisplay(entity)
 
-                                            // Filter out ID columns and internal fields
+                                            // Include ID fields but limit to first 3 fields for preview
                                             const displayFields = Object.entries(displayEntity)
-                                                .filter(([key]) => !key.includes('id') && !key.includes('_') && !key.endsWith('_clean'))
+                                                .filter(([key]) => !key.startsWith('_') || key === '_id')
+                                                .filter(([key]) => !key.endsWith('_clean'))
                                                 .slice(0, 3)
 
                                             return (
@@ -462,16 +602,18 @@ export function ClusterVisualization({
 
                                                         return (
                                                             <div key={key} className="flex flex-col">
+                                                                {/* Original value - NO strikethrough */}
                                                                 <div className="flex justify-between">
                                                                     <span className="text-muted-foreground">{key}:</span>
-                                                                    <span className={`font-medium truncate ml-2 max-w-[200px] ${hasCleaned ? 'line-through text-muted-foreground/70' : ''}`}>
+                                                                    <span className="font-medium truncate ml-2 max-w-[200px]">
                                                                         {String(value)}
                                                                     </span>
                                                                 </div>
+                                                                {/* Cleaned value shown below if different */}
                                                                 {hasCleaned && (
-                                                                    <div className="flex justify-between">
-                                                                        <span className="text-muted-foreground opacity-0">{key}:</span>
-                                                                        <span className="font-medium truncate ml-2 max-w-[200px] text-green-600 dark:text-green-400">
+                                                                    <div className="flex justify-between ml-4">
+                                                                        <span className="text-muted-foreground text-xs">↳ cleaned:</span>
+                                                                        <span className="font-medium truncate ml-2 max-w-[200px] text-green-600 dark:text-green-400 text-xs">
                                                                             {String(cleanValue)}
                                                                         </span>
                                                                     </div>
@@ -519,42 +661,79 @@ export function ClusterVisualization({
                     </GlassCard>
                 </TabsContent>
 
-                {/* Table View */}
+                {/* Table View - Simple CSV Style */}
                 <TabsContent value="table" className="mt-6">
-                    <GlassCard className="overflow-hidden">
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-sm">
-                                <thead className="bg-muted sticky top-0">
-                                    <tr>
-                                        <th className="px-4 py-2 text-left">Cluster</th>
-                                        <th className="px-4 py-2 text-left">Size</th>
-                                        <th className="px-4 py-2 text-left">Avg Score</th>
-                                        <th className="px-4 py-2 text-left">Entities</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {clusters.map((cluster) => (
-                                        <tr key={cluster.id} className="border-t hover:bg-muted/50">
-                                            <td className="px-4 py-2">
-                                                <Badge variant="secondary">#{cluster.id + 1}</Badge>
-                                            </td>
-                                            <td className="px-4 py-2">{cluster.size}</td>
-                                            <td className="px-4 py-2">
-                                                <Badge variant="outline">
-                                                    {(cluster.avgScore * 100).toFixed(0)}%
-                                                </Badge>
-                                            </td>
-                                            <td className="px-4 py-2">
-                                                <div className="max-w-md truncate">
-                                                    {cluster.entities.map((e, i) =>
-                                                        Object.values(e)[1] || Object.values(e)[0]
-                                                    ).join(', ')}
-                                                </div>
-                                            </td>
+                    <GlassCard className="overflow-hidden flex flex-col h-[600px]">
+                        <div className="p-4 bg-muted/50 border-b flex items-center justify-between">
+                            <div>
+                                <h3 className="font-semibold">Results Table</h3>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    Raw data with cluster assignments
+                                </p>
+                            </div>
+                            <Button variant="outline" size="sm" onClick={onExport} disabled={!tableData.length}>
+                                <Download className="w-4 h-4 mr-2" />
+                                Download CSV
+                            </Button>
+                        </div>
+
+                        <div className="flex-1 overflow-auto">
+                            {isLoadingTable ? (
+                                <div className="flex items-center justify-center h-full">
+                                    <div className="flex flex-col items-center gap-2">
+                                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                                        <p className="text-sm text-muted-foreground">Loading table data...</p>
+                                    </div>
+                                </div>
+                            ) : error ? (
+                                <div className="flex items-center justify-center h-full p-6">
+                                    <div className="text-center max-w-md space-y-4">
+                                        <div className="bg-destructive/10 p-4 rounded-full w-16 h-16 mx-auto flex items-center justify-center">
+                                            <AlertTriangle className="w-8 h-8 text-destructive" />
+                                        </div>
+                                        <div>
+                                            <h4 className="text-lg font-semibold text-destructive">Failed to Load Data</h4>
+                                            <p className="text-sm text-muted-foreground mt-1">{error}</p>
+                                        </div>
+                                        {(error.includes('No matching results') || error.includes('not found')) && (
+                                            <div className="bg-muted p-3 rounded text-xs text-left">
+                                                <p className="font-medium mb-1">Why is this happening?</p>
+                                                <p>The backend server may have restarted, clearing the in-memory results. Please re-run the matching process.</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            ) : tableData.length > 0 ? (
+                                <table className="w-full text-sm text-left">
+                                    <thead className="text-xs text-muted-foreground uppercase bg-muted/50 sticky top-0 z-10">
+                                        <tr>
+                                            {Object.keys(tableData[0]).map((header) => (
+                                                <th key={header} className="px-4 py-3 font-medium whitespace-nowrap">
+                                                    {header}
+                                                </th>
+                                            ))}
                                         </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                                    </thead>
+                                    <tbody className="divide-y divide-border">
+                                        {tableData.map((row, idx) => (
+                                            <tr key={idx} className="bg-background hover:bg-muted/50 transition-colors">
+                                                {Object.values(row).map((cell: any, cellIdx) => (
+                                                    <td key={cellIdx} className="px-4 py-2 whitespace-nowrap max-w-[200px] truncate">
+                                                        {cell === null ? <span className="text-muted-foreground italic">null</span> : String(cell)}
+                                                    </td>
+                                                ))}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            ) : (
+                                <div className="flex items-center justify-center h-full text-muted-foreground">
+                                    No data available
+                                </div>
+                            )}
+                        </div>
+                        <div className="p-2 border-t bg-muted/20 text-xs text-muted-foreground text-center">
+                            Showing {tableData.length} records
                         </div>
                     </GlassCard>
                 </TabsContent>
@@ -574,6 +753,7 @@ export function ClusterVisualization({
                 isOpen={showClusterDetail}
                 onClose={() => setShowClusterDetail(false)}
                 cluster={selectedCluster !== null ? clusters.find(c => c.id === selectedCluster) || null : null}
+                tableName={originalTableName?.replace('_original', '')}
             />
         </div>
     )

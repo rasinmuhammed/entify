@@ -26,7 +26,7 @@ import {
     PopoverContent,
     PopoverTrigger,
 } from '@/components/ui/popover'
-import { ChevronDown, Plus, FolderOpen, User, Settings, LogOut, Check } from 'lucide-react'
+import { ChevronDown, Plus, FolderOpen, User, Settings, LogOut, Check, Moon, Sun } from 'lucide-react'
 import { useDatasetStore } from '@/lib/store/useDatasetStore'
 import { supabase } from '@/lib/supabase'
 
@@ -64,6 +64,14 @@ export function TopNav({ userName = "User", userEmail = "user@example.com" }: To
         loadProjects()
     }, [])
 
+    // Initialize theme from localStorage
+    useEffect(() => {
+        const savedTheme = localStorage.getItem('theme')
+        if (savedTheme) {
+            document.documentElement.classList.toggle('dark', savedTheme === 'dark')
+        }
+    }, [])
+
     const currentProject = activeProject || (projects.length > 0 ? projects[0] : null)
 
     return (
@@ -71,10 +79,17 @@ export function TopNav({ userName = "User", userEmail = "user@example.com" }: To
             <div className="flex h-14 items-center px-6">
                 {/* Logo */}
                 <Link href="/" className="flex items-center gap-2 mr-6">
-                    <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-                        <span className="text-white font-bold text-sm">E</span>
+                    <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo-500 via-purple-500 to-purple-600 p-1.5 shadow-md">
+                        {/* Modern geometric logo - connected nodes */}
+                        <svg viewBox="0 0 24 24" fill="none" className="w-full h-full text-white">
+                            <circle cx="7" cy="17" r="3" stroke="currentColor" strokeWidth="2" />
+                            <circle cx="17" cy="7" r="3" stroke="currentColor" strokeWidth="2" />
+                            <path d="M9.5 14.5L14.5 9.5" stroke="currentColor" strokeWidth="2" />
+                        </svg>
                     </div>
-                    <span className="font-semibold text-lg">Entify</span>
+                    <span className="font-semibold text-lg bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+                        Entify
+                    </span>
                 </Link>
 
                 {/* Project Switcher */}
@@ -154,6 +169,26 @@ export function TopNav({ userName = "User", userEmail = "user@example.com" }: To
 
                 {/* Right Side */}
                 <div className="ml-auto flex items-center gap-2">
+                    {/* Dark Mode Toggle */}
+                    {mounted && (
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                                const html = document.documentElement
+                                const isDark = html.classList.contains('dark')
+                                html.classList.toggle('dark', !isDark)
+                                localStorage.setItem('theme', isDark ? 'light' : 'dark')
+                            }}
+                            className="h-9 w-9"
+                            title="Toggle theme"
+                        >
+                            <Sun className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
+                            <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+                            <span className="sr-only">Toggle theme</span>
+                        </Button>
+                    )}
+
                     {/* User Menu */}
                     {mounted && (
                         <DropdownMenu>

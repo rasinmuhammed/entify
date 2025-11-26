@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 import { Mail, User, Calendar, MapPin, Hash, Type, Zap, Info } from 'lucide-react'
 
 interface ColumnRule {
@@ -20,6 +21,7 @@ interface SimpleBlockingRuleBuilderProps {
     columns: string[]
     onRulesChange: (rules: string[]) => void
     initialRules?: string[]
+    tableName?: string
 }
 
 function detectColumnType(columnName: string): 'email' | 'name' | 'date' | 'location' | 'number' | 'text' {
@@ -124,8 +126,35 @@ function generateSQL(column: string, matchType: string, columnType: string, thre
     }
 }
 
-export function SimpleBlockingRuleBuilder({ columns, onRulesChange, initialRules = [] }: SimpleBlockingRuleBuilderProps) {
+export function SimpleBlockingRuleBuilder({ columns, onRulesChange, initialRules = [], tableName }: SimpleBlockingRuleBuilderProps) {
     const [columnRules, setColumnRules] = useState<ColumnRule[]>([])
+    const [testState, setTestState] = useState<Record<string, { loading: boolean, count?: number, error?: string }>>({})
+
+    const handleTestRule = async (column: string, rule: string) => {
+        if (!tableName) return
+
+        setTestState(prev => ({ ...prev, [column]: { loading: true } }))
+        try {
+            const response = await fetch('http://localhost:8000/api/test-blocking-rule', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ table_name: tableName, blocking_rule: rule })
+            })
+            const data = await response.json()
+
+            if (data.status === 'error') throw new Error(data.message)
+
+            setTestState(prev => ({
+                ...prev,
+                [column]: { loading: false, count: data.count }
+            }))
+        } catch (error: any) {
+            setTestState(prev => ({
+                ...prev,
+                [column]: { loading: false, error: error.message || 'Failed to test rule' }
+            }))
+        }
+    }
 
     useEffect(() => {
         if (columns.length === 0) return
@@ -274,9 +303,40 @@ export function SimpleBlockingRuleBuilder({ columns, onRulesChange, initialRules
                                 )}
 
                                 {rule.enabled && (
-                                    <div className="space-y-1">
-                                        <label className="text-xs font-medium text-muted-foreground">Generated SQL</label>
-                                        <div className="bg-muted/50 p-2 rounded font-mono text-xs break-all">{rule.sqlPreview}</div>
+                                    <div className="space-y-2">
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-medium text-muted-foreground">Generated SQL</label>
+                                            <div className="bg-muted/50 p-2 rounded font-mono text-xs break-all">{rule.sqlPreview}</div>
+                                        </div>
+
+                                        {/* Test Rule Button */}
+                                        <div className="flex items-center justify-between pt-1">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-7 text-xs"
+                                                onClick={() => handleTestRule(rule.column, rule.sqlPreview)}
+                                                disabled={testState[rule.column]?.loading || !tableName}
+                                            >
+                                                {testState[rule.column]?.loading ? (
+                                                    <>Testing...</>
+                                                ) : (
+                                                    <>Test Rule</>
+                                                )}
+                                            </Button>
+
+                                            {testState[rule.column] && !testState[rule.column].loading && (
+                                                <div className="text-xs">
+                                                    {testState[rule.column].error ? (
+                                                        <span className="text-red-500">{testState[rule.column].error}</span>
+                                                    ) : (
+                                                        <span className="text-green-600 font-medium">
+                                                            {testState[rule.column].count?.toLocaleString()} pairs
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 )}
                             </CardContent>

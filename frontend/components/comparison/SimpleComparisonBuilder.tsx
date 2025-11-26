@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Mail, User, Calendar, MapPin, Hash, Type, Zap, Info, Plus, Trash2, Settings } from 'lucide-react'
 import {
     ComparisonConfig,
+    ComparisonMethod,
     COMPARISON_METHODS,
     getMethodsForColumnType,
     suggestMethod,
@@ -199,7 +200,7 @@ export function SimpleComparisonBuilder({
         setConfigs(prev => prev.map(c =>
             c.column === column ? {
                 ...c,
-                method,
+                method: method as ComparisonMethod,
                 threshold: methodDef?.defaultThreshold
             } : c
         ))
@@ -295,7 +296,7 @@ export function SimpleComparisonBuilder({
                             </div>
                             <Slider
                                 value={[Math.log10(globalSettings.probability_two_random_records_match)]}
-                                onValueChange={([val]) => setGlobalSettings(prev => ({
+                                onValueChange={([val]) => setGlobalSettings((prev: any) => ({
                                     ...prev,
                                     probability_two_random_records_match: Math.pow(10, val)
                                 }))}
@@ -473,108 +474,119 @@ export function SimpleComparisonBuilder({
                                         )}
                                     </>
                                 ) : (
-                                    // Advanced Mode - Multiple Levels
-                                    config.enabled && (
-                                        <div className="space-y-3">
+                                    // Advanced Mode - Multiple Levels (Waterfall UI)
+                                    config.enabled && config.levels && (
+                                        <div className="space-y-3 pt-2 border-t border-dashed">
                                             <div className="flex items-center justify-between">
-                                                <label className="text-xs font-medium text-muted-foreground">Comparison Levels</label>
+                                                <label className="text-xs font-medium text-muted-foreground">Comparison Levels (Waterfall)</label>
                                                 <Button
+                                                    variant="ghost"
                                                     size="sm"
-                                                    variant="outline"
+                                                    className="h-6 text-xs"
                                                     onClick={() => handleAddLevel(config.column)}
-                                                    className="h-7 text-xs"
                                                 >
                                                     <Plus className="h-3 w-3 mr-1" />
                                                     Add Level
                                                 </Button>
                                             </div>
 
-                                            {config.levels?.map((level, idx) => (
-                                                <Card key={idx} className="bg-muted/30">
-                                                    <CardContent className="p-3 space-y-3">
-                                                        <div className="flex items-center justify-between">
-                                                            <Input
-                                                                value={level.label}
-                                                                onChange={(e) => handleLevelChange(config.column, idx, 'label', e.target.value)}
-                                                                className="h-8 text-xs font-medium flex-1 mr-2"
-                                                                placeholder="Level name"
-                                                            />
-                                                            {config.levels && config.levels.length > 1 && (
-                                                                <Button
-                                                                    size="sm"
-                                                                    variant="ghost"
-                                                                    onClick={() => handleRemoveLevel(config.column, idx)}
-                                                                    className="h-8 w-8 p-0"
-                                                                >
-                                                                    <Trash2 className="h-3 w-3" />
-                                                                </Button>
-                                                            )}
-                                                        </div>
+                                            <div className="space-y-2 relative">
+                                                {/* Vertical line connecting levels */}
+                                                <div className="absolute left-4 top-4 bottom-4 w-0.5 bg-border -z-10" />
 
-                                                        <div className="grid grid-cols-2 gap-2">
-                                                            <div className="space-y-1">
-                                                                <label className="text-xs text-muted-foreground">Method</label>
-                                                                <Select
-                                                                    value={level.method}
-                                                                    onValueChange={(value) => handleLevelChange(config.column, idx, 'method', value)}
-                                                                >
-                                                                    <SelectTrigger className="h-8 text-xs">
-                                                                        <SelectValue />
-                                                                    </SelectTrigger>
-                                                                    <SelectContent>
-                                                                        {methods.map(m => (
-                                                                            <SelectItem key={m.method} value={m.method} className="text-xs">
-                                                                                {m.label}
-                                                                            </SelectItem>
-                                                                        ))}
-                                                                        <SelectItem value="else" className="text-xs">Else (Catch-all)</SelectItem>
-                                                                    </SelectContent>
-                                                                </Select>
-                                                            </div>
+                                                {config.levels.map((level, idx) => {
+                                                    const isLast = idx === config.levels!.length - 1
+                                                    const isFirst = idx === 0
 
-                                                            {level.method !== 'else' && COMPARISON_METHODS.find(m => m.method === level.method)?.requiresThreshold && (
-                                                                <div className="space-y-1">
-                                                                    <label className="text-xs text-muted-foreground">Threshold</label>
-                                                                    <Input
-                                                                        type="number"
-                                                                        value={level.threshold || 0}
-                                                                        onChange={(e) => handleLevelChange(config.column, idx, 'threshold', parseFloat(e.target.value))}
-                                                                        className="h-8 text-xs"
-                                                                        step={0.05}
-                                                                    />
+                                                    return (
+                                                        <div key={idx} className="relative pl-8">
+                                                            {/* Connector dot */}
+                                                            <div className={`absolute left-[13px] top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border-2 border-background ${isFirst ? 'bg-green-500' : isLast ? 'bg-red-500' : 'bg-blue-500'
+                                                                }`} />
+
+                                                            <div className={`p-3 rounded-md border text-sm ${isLast ? 'bg-muted/50 border-dashed' : 'bg-card'
+                                                                }`}>
+                                                                <div className="flex items-center justify-between mb-2">
+                                                                    <span className="font-medium text-xs">
+                                                                        {isLast ? 'Else (No Match)' : `Level ${idx + 1}`}
+                                                                    </span>
+                                                                    {!isLast && !isFirst && (
+                                                                        <Button
+                                                                            variant="ghost"
+                                                                            size="icon"
+                                                                            className="h-5 w-5 text-muted-foreground hover:text-destructive"
+                                                                            onClick={() => handleRemoveLevel(config.column, idx)}
+                                                                        >
+                                                                            <Trash2 className="h-3 w-3" />
+                                                                        </Button>
+                                                                    )}
                                                                 </div>
-                                                            )}
-                                                        </div>
 
-                                                        <div className="grid grid-cols-2 gap-2">
-                                                            <div className="space-y-1">
-                                                                <label className="text-xs text-muted-foreground">m-probability</label>
-                                                                <Input
-                                                                    type="number"
-                                                                    value={level.mProbability}
-                                                                    onChange={(e) => handleLevelChange(config.column, idx, 'mProbability', parseFloat(e.target.value))}
-                                                                    min={0}
-                                                                    max={1}
-                                                                    step={0.05}
-                                                                    className="h-8 text-xs"
-                                                                />
-                                                            </div>
-                                                            <div className="space-y-1">
-                                                                <label className="text-xs text-muted-foreground">u-probability</label>
-                                                                <Input
-                                                                    type="number"
-                                                                    value={level.uProbability}
-                                                                    onChange={(e) => handleLevelChange(config.column, idx, 'uProbability', parseFloat(e.target.value))}
-                                                                    min={0}
-                                                                    max={1}
-                                                                    step={0.05}
-                                                                    className="h-8 text-xs"
-                                                                />
+                                                                {!isLast ? (
+                                                                    <div className="grid grid-cols-2 gap-2">
+                                                                        <Select
+                                                                            value={level.method}
+                                                                            onValueChange={(val) => handleLevelChange(config.column, idx, 'method', val)}
+                                                                        >
+                                                                            <SelectTrigger className="h-7 text-xs">
+                                                                                <SelectValue />
+                                                                            </SelectTrigger>
+                                                                            <SelectContent>
+                                                                                {getMethodsForColumnType(detectColumnType(config.column)).map(m => (
+                                                                                    <SelectItem key={m.method} value={m.method} className="text-xs">
+                                                                                        {m.label}
+                                                                                    </SelectItem>
+                                                                                ))}
+                                                                            </SelectContent>
+                                                                        </Select>
+
+                                                                        {COMPARISON_METHODS.find(m => m.method === level.method)?.requiresThreshold && (
+                                                                            <div className="flex items-center gap-2">
+                                                                                <span className="text-[10px] text-muted-foreground whitespace-nowrap">Thresh:</span>
+                                                                                <Input
+                                                                                    type="number"
+                                                                                    className="h-7 text-xs"
+                                                                                    value={level.threshold || 0}
+                                                                                    onChange={(e) => handleLevelChange(config.column, idx, 'threshold', parseFloat(e.target.value))}
+                                                                                    step={0.1}
+                                                                                    min={0}
+                                                                                />
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="text-xs text-muted-foreground italic">
+                                                                        Records that don't match any above rules fall here.
+                                                                    </div>
+                                                                )}
+
+                                                                <div className="mt-2 pt-2 border-t flex items-center gap-4">
+                                                                    <div className="flex-1 space-y-1">
+                                                                        <label className="text-[10px] text-muted-foreground">m-prob (Match)</label>
+                                                                        <Input
+                                                                            type="number"
+                                                                            value={level.mProbability}
+                                                                            onChange={(e) => handleLevelChange(config.column, idx, 'mProbability', parseFloat(e.target.value))}
+                                                                            min={0} max={1} step={0.05}
+                                                                            className="h-6 text-xs"
+                                                                        />
+                                                                    </div>
+                                                                    <div className="flex-1 space-y-1">
+                                                                        <label className="text-[10px] text-muted-foreground">u-prob (Non-Match)</label>
+                                                                        <Input
+                                                                            type="number"
+                                                                            value={level.uProbability}
+                                                                            onChange={(e) => handleLevelChange(config.column, idx, 'uProbability', parseFloat(e.target.value))}
+                                                                            min={0} max={1} step={0.05}
+                                                                            className="h-6 text-xs"
+                                                                        />
+                                                                    </div>
+                                                                </div>
                                                             </div>
                                                         </div>
-                                                    </CardContent>
-                                                </Card>
-                                            ))}
+                                                    )
+                                                })}
+                                            </div>
                                         </div>
                                     )
                                 )}
@@ -585,29 +597,31 @@ export function SimpleComparisonBuilder({
             </div>
 
             {/* Summary */}
-            {enabledCount > 0 && (
-                <Card className="bg-green-50/50 dark:bg-green-950/20 border-green-500/50">
-                    <CardContent className="py-4">
-                        <div className="space-y-2">
-                            <p className="text-sm font-medium">
-                                ✅ {enabledCount} {enabledCount === 1 ? 'field' : 'fields'} configured for comparison
-                            </p>
-                            {!advancedMode && (
-                                <p className="text-xs text-muted-foreground">
-                                    Total weight: {(totalWeight * 100).toFixed(0)}%
-                                    {totalWeight < 0.9 && ' (Consider adding more fields or increasing weights)'}
-                                    {totalWeight > 1.1 && ' (Total weight exceeds 100%, will be normalized)'}
+            {
+                enabledCount > 0 && (
+                    <Card className="bg-green-50/50 dark:bg-green-950/20 border-green-500/50">
+                        <CardContent className="py-4">
+                            <div className="space-y-2">
+                                <p className="text-sm font-medium">
+                                    ✅ {enabledCount} {enabledCount === 1 ? 'field' : 'fields'} configured for comparison
                                 </p>
-                            )}
-                            {advancedMode && (
-                                <p className="text-xs text-muted-foreground">
-                                    Using multi-level comparison with custom probabilities for Splink matching
-                                </p>
-                            )}
-                        </div>
-                    </CardContent>
-                </Card>
-            )}
-        </div>
+                                {!advancedMode && (
+                                    <p className="text-xs text-muted-foreground">
+                                        Total weight: {(totalWeight * 100).toFixed(0)}%
+                                        {totalWeight < 0.9 && ' (Consider adding more fields or increasing weights)'}
+                                        {totalWeight > 1.1 && ' (Total weight exceeds 100%, will be normalized)'}
+                                    </p>
+                                )}
+                                {advancedMode && (
+                                    <p className="text-xs text-muted-foreground">
+                                        Using multi-level comparison with custom probabilities for Splink matching
+                                    </p>
+                                )}
+                            </div>
+                        </CardContent>
+                    </Card>
+                )
+            }
+        </div >
     )
 }

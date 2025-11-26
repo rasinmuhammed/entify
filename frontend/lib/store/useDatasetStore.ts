@@ -9,10 +9,15 @@ export interface ColumnProfile {
 }
 
 export interface DatasetProfile {
+    id?: string  // Database ID
     name: string
     rowCount: number
     columns: ColumnProfile[]
     file_path?: string  // Path to the dataset file in storage
+    cleaned_file_path?: string
+    table_name?: string
+    row_count?: number
+    primary_key_column?: string  // User-selected unique identifier column
 }
 
 export interface Project {

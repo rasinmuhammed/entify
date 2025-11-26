@@ -12,7 +12,9 @@ export type ComparisonMethod =
     | 'date_diff'
     | 'numeric_diff'
     | 'contains'
-    | 'company_name'  // Intelligent company name matching
+    | 'company_name'
+    | 'damerau_levenshtein'
+    | 'cosine'
 
 export type EntityType =
     | 'company'
@@ -152,6 +154,28 @@ export const COMPARISON_METHODS: ComparisonMethodDefinition[] = [
         example: '"Google LLC" vs "Google Incorporated" → 0.95',
         requiresThreshold: false,
         splinkEquivalent: 'custom_template'
+    },
+    {
+        method: 'damerau_levenshtein',
+        label: 'Damerau-Levenshtein',
+        description: 'Like Levenshtein but handles transpositions',
+        icon: '🔄',
+        bestFor: ['Names', 'Typos'],
+        example: '"teh" vs "the" (1 transposition) → 0.9',
+        requiresThreshold: true,
+        defaultThreshold: 0.8,
+        splinkEquivalent: 'damerau_levenshtein'
+    },
+    {
+        method: 'cosine',
+        label: 'Cosine Similarity',
+        description: 'Vector-based similarity',
+        icon: '📐',
+        bestFor: ['Text descriptions', 'Lists'],
+        example: '"red shoe" vs "shoe red" → 1.0',
+        requiresThreshold: true,
+        defaultThreshold: 0.7,
+        splinkEquivalent: 'cosine'
     }
 ]
 
@@ -165,7 +189,7 @@ export function getMethodsForColumnType(columnType: 'email' | 'name' | 'date' | 
 
         case 'name':
             return COMPARISON_METHODS.filter(m =>
-                ['exact', 'levenshtein', 'jaro_winkler', 'soundex'].includes(m.method)
+                ['exact', 'levenshtein', 'damerau_levenshtein', 'jaro_winkler', 'soundex'].includes(m.method)
             )
 
         case 'date':
@@ -173,7 +197,7 @@ export function getMethodsForColumnType(columnType: 'email' | 'name' | 'date' | 
 
         case 'location':
             return COMPARISON_METHODS.filter(m =>
-                ['exact', 'levenshtein', 'jaro_winkler', 'jaccard', 'contains'].includes(m.method)
+                ['exact', 'levenshtein', 'damerau_levenshtein', 'jaro_winkler', 'jaccard', 'contains'].includes(m.method)
             )
 
         case 'number':
@@ -182,7 +206,7 @@ export function getMethodsForColumnType(columnType: 'email' | 'name' | 'date' | 
         case 'text':
         default:
             return COMPARISON_METHODS.filter(m =>
-                ['exact', 'levenshtein', 'jaro_winkler', 'jaccard', 'contains'].includes(m.method)
+                ['exact', 'levenshtein', 'damerau_levenshtein', 'jaro_winkler', 'jaccard', 'cosine', 'contains'].includes(m.method)
             )
     }
 }

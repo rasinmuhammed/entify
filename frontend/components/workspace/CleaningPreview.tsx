@@ -47,10 +47,22 @@ export function CleaningPreview({
             const afterRows = afterResult.toArray().map((r: any) => r.toJSON())
             setAfterData(afterRows)
 
-            // Get columns
-            if (beforeRows.length > 0) {
-                const cols = columns || Object.keys(beforeRows[0])
-                setDisplayColumns(cols.slice(0, 5)) // Show first 5 columns
+            // Get columns from both before and after (union of all columns)
+            if (beforeRows.length > 0 && afterRows.length > 0) {
+                const beforeCols = Object.keys(beforeRows[0])
+                const afterCols = Object.keys(afterRows[0])
+
+                // Combine columns, preferring to show cleaned columns if they exist
+                const allCols = new Set([...beforeCols, ...afterCols])
+                const cols = columns || Array.from(allCols)
+
+                // Prioritize showing cleaned columns (those ending with _cleaned or only in after)
+                const cleanedCols = cols.filter(c => c.endsWith('_cleaned') || (afterCols.includes(c) && !beforeCols.includes(c)))
+                const originalCols = cols.filter(c => !c.endsWith('_cleaned') && beforeCols.includes(c))
+
+                // Show cleaned columns first, then a few original columns
+                const displayCols = [...cleanedCols, ...originalCols.slice(0, Math.max(1, 5 - cleanedCols.length))]
+                setDisplayColumns(displayCols)
             }
 
             await conn.close()
@@ -122,15 +134,27 @@ export function CleaningPreview({
                                             <div className="space-y-2">
                                                 <p className="text-xs font-medium text-muted-foreground">Before</p>
                                                 {displayColumns.map(col => {
-                                                    const beforeValue = String(beforeRow[col] || '')
+                                                    const beforeExists = col in beforeRow
+                                                    const beforeValue = beforeExists ? String(beforeRow[col] || '') : null
                                                     const afterValue = String(afterRow[col] || '')
-                                                    const changed = beforeValue !== afterValue
+                                                    const changed = beforeExists && beforeValue !== afterValue
 
                                                     return (
                                                         <div key={col} className="space-y-1">
                                                             <p className="text-xs font-medium">{col}</p>
-                                                            <div className={`p-2 rounded text-sm font-mono ${changed ? 'bg-red-50 dark:bg-red-950/20 border border-red-200' : 'bg-background'}`}>
-                                                                {beforeValue || <span className="text-muted-foreground italic">empty</span>}
+                                                            <div className={`p-2 rounded text-sm font-mono ${!beforeExists
+                                                                    ? 'bg-muted/50 text-muted-foreground'
+                                                                    : changed
+                                                                        ? 'bg-red-50 dark:bg-red-950/20 border border-red-200'
+                                                                        : 'bg-background'
+                                                                }`}>
+                                                                {!beforeExists ? (
+                                                                    <span className="text-muted-foreground italic text-xs">(new column)</span>
+                                                                ) : beforeValue ? (
+                                                                    beforeValue
+                                                                ) : (
+                                                                    <span className="text-muted-foreground italic">empty</span>
+                                                                )}
                                                             </div>
                                                         </div>
                                                     )
