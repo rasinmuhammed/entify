@@ -19,12 +19,15 @@ export function QualityMetrics() {
             const response = await fetch('http://localhost:8000/api/model-settings')
             if (!response.ok) {
                 const errorText = await response.text()
+                let errorMessage = 'Failed to fetch settings'
                 try {
                     const errorJson = JSON.parse(errorText)
-                    throw new Error(errorJson.detail || 'Failed to fetch settings')
+                    errorMessage = errorJson.detail || errorMessage
                 } catch (e) {
-                    throw new Error(`Failed to fetch settings: ${response.status}`)
+                    // If JSON parsing fails, use the raw text
+                    errorMessage = `${errorMessage}: ${response.status}`
                 }
+                throw new Error(errorMessage)
             }
             const data = await response.json()
             setSettings(data)

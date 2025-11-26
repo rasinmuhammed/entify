@@ -91,12 +91,15 @@ export function ClusterVisualization({
                     const response = await fetch(`http://localhost:8000/api/clusters?${params}`)
                     if (!response.ok) {
                         const errorText = await response.text()
+                        let errorMessage = 'Failed to fetch cluster data'
                         try {
                             const errorJson = JSON.parse(errorText)
-                            throw new Error(errorJson.detail || 'Failed to fetch cluster data')
+                            errorMessage = errorJson.detail || errorMessage
                         } catch (e) {
-                            throw new Error(`Failed to fetch cluster data: ${response.status} ${errorText}`)
+                            // If JSON parsing fails, use the raw text
+                            errorMessage = `${errorMessage}: ${response.status} ${errorText}`
                         }
+                        throw new Error(errorMessage)
                     }
                     const data = await response.json()
                     setTableData(data)
