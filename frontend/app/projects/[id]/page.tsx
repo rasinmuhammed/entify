@@ -27,8 +27,11 @@ import {
     MoreVertical,
     Trash2,
     Edit2,
-    FlaskConical
+    FlaskConical,
+    Lock
 } from "lucide-react"
+import { PhaseStatus, INITIAL_PHASE_STATUS, PhaseId, PhaseInfo } from '@/types/phaseStatus'
+import { validatePhaseAccess, getPhaseRequirements } from '@/lib/phaseValidation'
 import { handleRenameProject, handleDeleteProject } from "@/lib/projectManagement"
 import {
     DropdownMenu,
@@ -53,6 +56,7 @@ import { DataCleaningStudio } from "@/components/workspace/DataCleaningStudio"
 import { PrimaryKeySelector } from "@/components/workspace/PrimaryKeySelector"
 import { ModelEvaluationDashboard } from "@/components/charts/ModelEvaluationDashboard"
 import { LaboratoryDashboard } from "@/components/laboratory/LaboratoryDashboard"
+import { PhaseGuidanceCard } from "@/components/PhaseGuidanceCard"
 
 
 const PHASES = [
@@ -78,6 +82,9 @@ export default function ProjectPage() {
     const [activePhase, setActivePhase] = useState('profile')
     const [clusterSizeFilter, setClusterSizeFilter] = useState<{ min: number, max: number } | null>(null)
 
+    // Phase progress tracking
+    const [phaseStatus, setPhaseStatus] = useState<PhaseStatus>(INITIAL_PHASE_STATUS)
+
     // Project State (persisted to database)
     const [blockingRules, setBlockingRules] = useState<string[]>([])
     const [comparisons, setComparisons] = useState<any[]>([])
@@ -91,6 +98,14 @@ export default function ProjectPage() {
     const [globalSettings, setGlobalSettings] = useState({
         probability_two_random_records_match: 0.0001
     })
+
+    // Helper to update phase status
+    const updatePhaseStatus = (phase: PhaseId, updates: Partial<PhaseInfo>) => {
+        setPhaseStatus(prev => ({
+            ...prev,
+            [phase]: { ...prev[phase], ...updates }
+        }))
+    }
 
     // Auto-save blocking rules to database
     useEffect(() => {
@@ -215,6 +230,69 @@ export default function ProjectPage() {
             return () => clearTimeout(timeout)
         }
     }, [activePhase, activeProject?.id])
+
+    // Track phase completion: Profile phase
+    useEffect(() => {
+        if (activeDataset) {
+            updatePhaseStatus('profile', {
+                complete: true,
+                metadata: { datasetId: activeDataset.id, tableName: activeDataset.table_name }
+            })
+            // Enable next phases
+            updatePhaseStatus('cleaning', { canAccess: true })
+            updatePhaseStatus('blocking', { canAccess: true })
+            updatePhaseStatus('comparisons', { canAccess: true })
+        }
+    }, [activeDataset])
+
+    // Track phase completion: Blocking phase
+    useEffect(() => {
+        const isComplete = blockingRules.length > 0
+        updatePhaseStatus('blocking', {
+            complete: isComplete,
+            metadata: { rulesCount: blockingRules.length }
+        })
+        // Update training access if prerequisites met
+        if (isComplete && comparisons.length > 0) {
+            updatePhaseStatus('training', { canAccess: true })
+        }
+    }, [blockingRules, comparisons])
+
+    // Track phase completion: Comparisons phase
+    useEffect(() => {
+        const isComplete = comparisons.length > 0
+        updatePhaseStatus('comparisons', {
+            complete: isComplete,
+            metadata: { comparisonsCount: comparisons.length }
+        })
+        // Update training access if prerequisites met
+        if (isComplete && blockingRules.length > 0) {
+            updatePhaseStatus('training', { canAccess: true })
+        }
+    }, [comparisons, blockingRules])
+
+    // Track phase completion: Training phase
+    useEffect(() => {
+        if (modelTrained) {
+            updatePhaseStatus('training', {
+                complete: true,
+                metadata: { timestamp: new Date().toISOString() }
+            })
+            // Enable laboratory and results
+            updatePhaseStatus('laboratory', { canAccess: true })
+            updatePhaseStatus('results', { canAccess: true })
+        }
+    }, [modelTrained])
+
+    // Track phase completion: Results phase
+    useEffect(() => {
+        if (results.length > 0) {
+            updatePhaseStatus('results', {
+                complete: true,
+                metadata: { resultsCount: results.length }
+            })
+        }
+    }, [results])
 
     // Save primary key to database
     const savePrimaryKey = async (columnName: string) => {
@@ -755,20 +833,50 @@ export default function ProjectPage() {
                     {PHASES.map((phase) => {
                         const Icon = phase.icon
                         const isActive = activePhase === phase.id
+                        const status = phaseStatus[phase.id as PhaseId]
+                        const validation = validatePhaseAccess(phase.id as PhaseId, phaseStatus)
+                        const isLocked = !validation.canAccess
+
                         return (
                             <button
                                 key={phase.id}
-                                onClick={() => setActivePhase(phase.id)}
+                                onClick={() => {
+                                    if (isLocked) {
+                                        // Could show toast notification here
+                                        console.log('Phase locked:', validation.reason)
+                                        return
+                                    }
+                                    setActivePhase(phase.id)
+                                }}
+                                disabled={isLocked}
                                 className={`
                                     w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all
                                     ${isActive
                                         ? 'bg-primary text-primary-foreground shadow-sm'
-                                        : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                                        : isLocked
+                                            ? 'text-muted-foreground/50 cursor-not-allowed opacity-60'
+                                            : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                                     }
                                 `}
+                                title={isLocked ? validation.reason : undefined}
                             >
                                 <Icon className="w-4 h-4 flex-shrink-0" />
-                                <span>{phase.label}</span>
+                                <span className="flex-1 text-left">{phase.label}</span>
+
+                                {/* Completion checkmark */}
+                                {status?.complete && !isActive && (
+                                    <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
+                                )}
+
+                                {/* In progress indicator */}
+                                {isActive && !status?.complete && (
+                                    <div className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0 animate-pulse" />
+                                )}
+
+                                {/* Locked indicator */}
+                                {isLocked && (
+                                    <Lock className="w-3 h-3 flex-shrink-0" />
+                                )}
                             </button>
                         )
                     })}
@@ -993,6 +1101,14 @@ export default function ProjectPage() {
                                                         ⚠️ No columns detected. Please ensure your data is loaded in the Profile phase first.
                                                     </div>
                                                 )}
+
+                                            {/* Phase Guidance */}
+                                            <PhaseGuidanceCard
+                                                currentPhase="blocking"
+                                                phaseStatus={phaseStatus}
+                                                onNavigate={(phase) => setActivePhase(phase)}
+                                            />
+
                                             <div className="flex justify-end border-t border-border pt-4">
                                                 <Button onClick={() => setActivePhase('comparisons')} disabled={blockingRules.length === 0}>
                                                     Next: Comparisons <ArrowRight className="w-4 h-4 ml-2" />
@@ -1034,6 +1150,14 @@ export default function ProjectPage() {
                                                     </p>
                                                 </div>
                                             )}
+
+                                            {/* Phase Guidance */}
+                                            <PhaseGuidanceCard
+                                                currentPhase="comparisons"
+                                                phaseStatus={phaseStatus}
+                                                onNavigate={(phase) => setActivePhase(phase)}
+                                            />
+
                                             <div className="flex justify-end border-t border-border pt-4">
                                                 <Button onClick={() => setActivePhase('training')} disabled={comparisons.length === 0}>
                                                     Next: Training <ArrowRight className="w-4 h-4 ml-2" />
@@ -1049,6 +1173,14 @@ export default function ProjectPage() {
                                             onTrainingComplete={() => setModelTrained(true)}
                                             globalSettings={globalSettings}
                                         />
+
+                                        {/* Phase Guidance */}
+                                        <PhaseGuidanceCard
+                                            currentPhase="training"
+                                            phaseStatus={phaseStatus}
+                                            onNavigate={(phase) => setActivePhase(phase)}
+                                        />
+
                                         <div className="flex justify-end gap-3">
                                             <Button
                                                 onClick={handleRunMatch}
