@@ -8,6 +8,14 @@ from typing import Dict, List, Optional, Any
 from pydantic import BaseModel, Field
 import pandas as pd
 from engine import EntityResolutionEngine, RuleTranspiler
+import os
+import re
+
+
+class SemanticBlockingConfig(BaseModel):
+    column: str
+    run_id: str
+    rule: str
 
 
 class SplinkSettings(BaseModel):
@@ -45,6 +53,7 @@ class EntityResolutionRequest(BaseModel):
     threshold: float = Field(default=0.5, ge=0.0, le=1.0)
     table_name: Optional[str] = Field(default="input_data")
     primary_key_column: Optional[str] = Field(default=None, description="Name of the unique identifier column")
+    semantic_blocking: Optional[List[SemanticBlockingConfig]] = Field(default_factory=list)
 
 
 class EntityResolutionResponse(BaseModel):
@@ -132,7 +141,8 @@ class SplinkService:
         settings: Dict[str, Any],
         threshold: float = 0.5,
         table_name: str = "input_data",
-        primary_key_column: Optional[str] = None
+        primary_key_column: Optional[str] = None,
+        semantic_blocking: Optional[List[Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
         """
         Run entity resolution with Splink
@@ -175,6 +185,21 @@ class SplinkService:
             # Helper to check if a column is the unique ID column
             def _is_id_column(col_name: str) -> bool:
                 return col_name == (primary_key_column or settings.get("unique_id_column_name", "id"))
+
+            # Apply semantic blocking columns (if provided)
+            if semantic_blocking:
+                self._apply_semantic_blocking_columns(
+                    table_name=table_name,
+                    semantic_blocking=semantic_blocking
+                )
+
+                # Inject semantic blocking rules if not already present
+                existing_rules = set(settings.get("blocking_rules_to_generate_predictions", []))
+                for config in semantic_blocking:
+                    rule = config.get("rule")
+                    if rule and rule not in existing_rules:
+                        settings["blocking_rules_to_generate_predictions"].append(rule)
+                        existing_rules.add(rule)
 
             # Convert comparisons to Splink library format
             if isinstance(settings.get("comparisons"), list):
@@ -289,6 +314,94 @@ class SplinkService:
                 "error": str(e),
                 "traceback": tb
             }
+
+    def _apply_semantic_blocking_columns(
+        self,
+        table_name: str,
+        semantic_blocking: List[Dict[str, Any]]
+    ) -> None:
+        """
+        Apply semantic blocking columns to the input table by joining against
+        the persistent metadata database.
+        """
+        if not semantic_blocking:
+            return
+
+        metadata_db_path = os.environ.get(
+            "ENTIFY_METADATA_DB",
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "entify.duckdb")
+        )
+        metadata_db_path = os.path.normpath(metadata_db_path)
+
+        try:
+            # Attach metadata DB for mapping lookup
+            self.con.execute(f"ATTACH '{metadata_db_path}' AS semantic_meta")
+        except Exception as e:
+            print(f"⚠️ Failed to attach metadata DB: {e}")
+            return
+
+        # Ensure metadata tables exist
+        try:
+            table_exists = self.con.execute(
+                """
+                SELECT COUNT(*) FROM semantic_meta.information_schema.tables
+                WHERE table_name = 'semantic_blocking_values'
+                """
+            ).fetchone()[0]
+            if not table_exists:
+                print("⚠️ Semantic blocking metadata tables not found.")
+                try:
+                    self.con.execute("DETACH semantic_meta")
+                except Exception:
+                    pass
+                return
+        except Exception as e:
+            print(f"⚠️ Failed to verify metadata tables: {e}")
+            try:
+                self.con.execute("DETACH semantic_meta")
+            except Exception:
+                pass
+            return
+
+        # Fetch existing columns
+        col_info = self.con.execute(f"PRAGMA table_info({table_name})").fetchdf()
+        existing_columns = set(col_info['name'])
+
+        for config in semantic_blocking:
+            column = config.get("column")
+            run_id = config.get("run_id")
+            if not column or not run_id:
+                continue
+
+            safe_col = re.sub(r"[^a-zA-Z0-9_]", "_", column)
+            derived_col = f"semantic_block__{safe_col}"
+
+            if derived_col not in existing_columns:
+                try:
+                    self.con.execute(f'ALTER TABLE "{table_name}" ADD COLUMN "{derived_col}" TEXT')
+                    existing_columns.add(derived_col)
+                except Exception as e:
+                    print(f"⚠️ Failed to add column {derived_col}: {e}")
+                    continue
+
+            try:
+                # Map values to cluster IDs
+                update_sql = f"""
+                    UPDATE "{table_name}" AS t
+                    SET "{derived_col}" = m.cluster_id
+                    FROM semantic_meta.semantic_blocking_values AS m
+                    WHERE m.run_id = ?
+                      AND CAST(t."{column}" AS VARCHAR) = m.value
+                """
+                self.con.execute(update_sql, [run_id])
+            except Exception as e:
+                print(f"⚠️ Failed to populate semantic blocking column {derived_col}: {e}")
+
+        # Detach to avoid locking
+        try:
+            self.con.execute("DETACH semantic_meta")
+        except Exception:
+            pass
     
     def get_data_profile(self, data_csv: str, table_name: str = "profile_data") -> Dict[str, Any]:
         """

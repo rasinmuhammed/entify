@@ -20,6 +20,7 @@ from sse_starlette.sse import EventSourceResponse
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from services.splink_service import SplinkService, EntityResolutionRequest, EntityResolutionResponse
+from services.semantic_blocking_service import SemanticBlockingService
 
 # Global log queue for training logs
 training_log_queue = Queue()
@@ -51,6 +52,7 @@ app.add_middleware(
 
 # Initialize service
 splink_service = SplinkService()
+semantic_blocking_service = SemanticBlockingService()
 
 
 @app.get("/")
@@ -89,11 +91,41 @@ async def resolve_entities(request: EntityResolutionRequest):
             settings=request.settings.model_dump(),
             threshold=request.threshold,
             table_name=request.table_name or "input_data",
-            primary_key_column=request.primary_key_column
+            primary_key_column=request.primary_key_column,
+            semantic_blocking=[sb.model_dump() for sb in request.semantic_blocking] if request.semantic_blocking else []
         )
         
         return EntityResolutionResponse(**result)
         
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class SemanticSuggestionRequest(BaseModel):
+    data: str
+    columns: List[str]
+    sample_size: int = 5000
+    max_unique_values: int = 2000
+    similarity_threshold: float = 0.85
+    model_name: str = "all-MiniLM-L6-v2"
+
+
+@app.post("/api/blocking/suggestions")
+async def generate_blocking_suggestions(request: SemanticSuggestionRequest):
+    """
+    Generate semantic blocking suggestions for selected columns.
+    """
+    try:
+        csv_data = base64.b64decode(request.data).decode("utf-8")
+        result = semantic_blocking_service.generate_suggestions(
+            data_csv=csv_data,
+            columns=request.columns,
+            sample_size=request.sample_size,
+            max_unique_values=request.max_unique_values,
+            similarity_threshold=request.similarity_threshold,
+            model_name=request.model_name
+        )
+        return JSONResponse(content=result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

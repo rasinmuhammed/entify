@@ -26,6 +26,11 @@ export interface EntityResolutionRequest {
     threshold: number
     table_name?: string
     primary_key_column?: string
+    semantic_blocking?: Array<{
+        column: string
+        run_id: string
+        rule: string
+    }>
 }
 
 export interface EntityResolutionResponse {
@@ -44,7 +49,8 @@ export async function runEntityResolution(
     csvData: string,
     settings: SplinkSettings,
     threshold: number = 0.5,
-    primaryKeyColumn?: string
+    primaryKeyColumn?: string,
+    semanticBlocking?: Array<{ column: string; run_id: string; rule: string }>
 ): Promise<EntityResolutionResponse> {
     // Encode CSV as base64 (UTF-8 safe, handles large data)
     const encoder = new TextEncoder()
@@ -63,7 +69,8 @@ export async function runEntityResolution(
         data: base64Data,
         settings,
         threshold,
-        primary_key_column: primaryKeyColumn
+        primary_key_column: primaryKeyColumn,
+        semantic_blocking: semanticBlocking
     }
 
     const response = await fetch(`${API_BASE_URL}/api/resolve`, {

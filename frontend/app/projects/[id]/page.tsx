@@ -57,6 +57,7 @@ import { PrimaryKeySelector } from "@/components/workspace/PrimaryKeySelector"
 import { ModelEvaluationDashboard } from "@/components/charts/ModelEvaluationDashboard"
 import { LaboratoryDashboard } from "@/components/laboratory/LaboratoryDashboard"
 import { PhaseGuidanceCard } from "@/components/PhaseGuidanceCard"
+import { SmartBlockingPanel, SemanticSuggestion } from "@/components/blocking/SmartBlockingPanel"
 
 
 const PHASES = [
@@ -95,6 +96,7 @@ export default function ProjectPage() {
     const [dataColumns, setDataColumns] = useState<string[]>([])
     const [primaryKey, setPrimaryKey] = useState<string | null>(activeDataset?.primary_key_column || null)
     const [isPrimaryKeyConfirmed, setIsPrimaryKeyConfirmed] = useState(false)
+    const [semanticBlocking, setSemanticBlocking] = useState<Array<{ column: string, run_id: string, rule: string }>>([])
     const [globalSettings, setGlobalSettings] = useState({
         probability_two_random_records_match: 0.0001
     })
@@ -207,6 +209,36 @@ export default function ProjectPage() {
             return () => clearTimeout(timeout)
         }
     }, [threshold, activeProject?.id])
+
+    // Auto-save semantic blocking config
+    useEffect(() => {
+        if (activeProject?.id) {
+            const saveSemanticConfig = async () => {
+                try {
+                    const currentConfig = activeProject?.configuration || {}
+                    const nextConfig = {
+                        ...currentConfig,
+                        semantic_blocking: semanticBlocking
+                    }
+                    const { error } = await supabase
+                        .from('projects')
+                        .update({
+                            configuration: nextConfig,
+                            last_updated: new Date().toISOString()
+                        })
+                        .eq('id', activeProject.id)
+
+                    if (error) {
+                        console.warn('Semantic config save failed:', error)
+                    }
+                } catch (e) {
+                    console.error('Failed to save semantic config:', e)
+                }
+            }
+            const timeout = setTimeout(saveSemanticConfig, 1000)
+            return () => clearTimeout(timeout)
+        }
+    }, [semanticBlocking, activeProject?.id])
 
     // Auto-save active phase
     useEffect(() => {
@@ -432,6 +464,12 @@ export default function ProjectPage() {
             if (project.global_settings) {
                 setGlobalSettings(project.global_settings)
                 console.log('⚙️  Loaded global settings')
+            }
+
+            // Load semantic blocking configuration (stored in configuration)
+            if (project.configuration?.semantic_blocking && Array.isArray(project.configuration.semantic_blocking)) {
+                setSemanticBlocking(project.configuration.semantic_blocking)
+                console.log('🧠 Loaded semantic blocking config:', project.configuration.semantic_blocking.length)
             }
 
             // Load threshold
@@ -774,7 +812,8 @@ export default function ProjectPage() {
                 csvData,
                 settings,
                 0.5,
-                primaryKey || undefined  // Pass the user-selected primary key
+                primaryKey || undefined,  // Pass the user-selected primary key
+                semanticBlocking
             )
 
             if (response.status === 'success') {
@@ -1076,6 +1115,36 @@ export default function ProjectPage() {
                                             <PanelTitle>Blocking Configuration</PanelTitle>
                                         </PanelHeader>
                                         <PanelContent className="space-y-6">
+                                            <SmartBlockingPanel
+                                                columns={
+                                                    dataColumns.length > 0
+                                                        ? dataColumns
+                                                        : (activeDataset?.columns && activeDataset.columns.length > 0)
+                                                            ? activeDataset.columns.map(c => typeof c === 'string' ? c : c.column)
+                                                            : (previewData && previewData.length > 0)
+                                                                ? Object.keys(previewData[0])
+                                                                : []
+                                                }
+                                                duckDB={duckDB}
+                                                tableName={activeDataset?.table_name || activeDataset?.name?.replace(/[^a-zA-Z0-9_]/g, '_')}
+                                                onApplySuggestion={(suggestion: SemanticSuggestion) => {
+                                                    if (!blockingRules.includes(suggestion.recommended_rule)) {
+                                                        setBlockingRules([...blockingRules, suggestion.recommended_rule])
+                                                    }
+
+                                                    setSemanticBlocking((prev) => {
+                                                        const filtered = prev.filter(p => p.column !== suggestion.column)
+                                                        return [
+                                                            ...filtered,
+                                                            {
+                                                                column: suggestion.column,
+                                                                run_id: suggestion.run_id,
+                                                                rule: suggestion.recommended_rule
+                                                            }
+                                                        ]
+                                                    })
+                                                }}
+                                            />
                                             <BlockingRuleBuilder
                                                 columns={
                                                     // Try multiple sources for columns, prioritizing live data
