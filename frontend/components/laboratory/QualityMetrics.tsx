@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { LineChart, BarChart3, Loader2, AlertCircle } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts'
+import { fetchApiJson } from '@/lib/api/client'
 
 export function QualityMetrics() {
     const [settings, setSettings] = useState<any>(null)
@@ -16,20 +17,7 @@ export function QualityMetrics() {
         setLoading(true)
         setError(null)
         try {
-            const response = await fetch('http://localhost:8000/api/model-settings')
-            if (!response.ok) {
-                const errorText = await response.text()
-                let errorMessage = 'Failed to fetch settings'
-                try {
-                    const errorJson = JSON.parse(errorText)
-                    errorMessage = errorJson.detail || errorMessage
-                } catch (e) {
-                    // If JSON parsing fails, use the raw text
-                    errorMessage = `${errorMessage}: ${response.status}`
-                }
-                throw new Error(errorMessage)
-            }
-            const data = await response.json()
+            const data = await fetchApiJson<any>('/api/model-settings')
             setSettings(data)
 
             // Select first comparison by default

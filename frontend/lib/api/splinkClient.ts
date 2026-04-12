@@ -3,7 +3,7 @@
  * Clean abstraction over fetch calls
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { buildApiUrl, fetchApiJson } from "@/lib/api/client"
 
 export interface SplinkSettings {
     link_type: string
@@ -73,21 +73,13 @@ export async function runEntityResolution(
         semantic_blocking: semanticBlocking
     }
 
-    const response = await fetch(`${API_BASE_URL}/api/resolve`, {
+    return fetchApiJson<EntityResolutionResponse>('/api/resolve', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
         },
         body: JSON.stringify(request)
     })
-
-    if (!response.ok) {
-        const error = await response.json()
-        console.error('❌ API Error Details:', JSON.stringify(error, null, 2))
-        throw new Error(error.detail || 'Entity resolution failed')
-    }
-
-    return response.json()
 }
 
 /**
@@ -103,7 +95,7 @@ export async function runEntityResolutionFromFile(
     formData.append('settings', JSON.stringify(settings))
     formData.append('threshold', threshold.toString())
 
-    const response = await fetch(`${API_BASE_URL}/api/resolve/file`, {
+    const response = await fetch(buildApiUrl('/api/resolve/file'), {
         method: 'POST',
         body: formData
     })
@@ -122,7 +114,7 @@ export async function profileDataset(file: File) {
     const formData = new FormData()
     formData.append('file', file)
 
-    const response = await fetch(`${API_BASE_URL}/api/profile`, {
+    const response = await fetch(buildApiUrl('/api/profile'), {
         method: 'POST',
         body: formData
     })
@@ -138,6 +130,5 @@ export async function profileDataset(file: File) {
  * Health check
  */
 export async function checkHealth() {
-    const response = await fetch(`${API_BASE_URL}/api/health`)
-    return response.json()
+    return fetchApiJson('/api/health')
 }

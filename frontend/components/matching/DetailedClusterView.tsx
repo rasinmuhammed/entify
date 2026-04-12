@@ -13,6 +13,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import Cytoscape from 'cytoscape'
 import CytoscapeComponent from 'react-cytoscapejs'
+import { buildApiUrl } from '@/lib/api/client'
 
 interface Entity {
     [key: string]: any
@@ -176,7 +177,11 @@ export function DetailedClusterView({
                                 </div>
                                 <div className="h-[500px] bg-white rounded-lg border overflow-hidden">
                                     <iframe
-                                        src={`http://localhost:8000/api/waterfall-chart?table_name=${tableName}&record_id_1=${selectedLink.source}&record_id_2=${selectedLink.target}`}
+                                        src={buildApiUrl('/api/splink/charts/waterfall', {
+                                            table_name: tableName,
+                                            record_id_1: selectedLink.source,
+                                            record_id_2: selectedLink.target,
+                                        })}
                                         className="w-full h-full border-0"
                                         title="Match Waterfall Chart"
                                     />

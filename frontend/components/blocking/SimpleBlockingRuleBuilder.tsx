@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Mail, User, Calendar, MapPin, Hash, Type, Zap, Info } from 'lucide-react'
+import { buildApiUrl } from '@/lib/api/client'
 
 interface ColumnRule {
     column: string
@@ -135,7 +136,7 @@ export function SimpleBlockingRuleBuilder({ columns, onRulesChange, initialRules
 
         setTestState(prev => ({ ...prev, [column]: { loading: true } }))
         try {
-            const response = await fetch('http://localhost:8000/api/test-blocking-rule', {
+            const response = await fetch(buildApiUrl('/api/test-blocking-rule'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ table_name: tableName, blocking_rule: rule })

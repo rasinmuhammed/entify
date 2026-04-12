@@ -7,6 +7,7 @@ import { GlassCard } from "@/components/ui/glass-card"
 import { Button } from "@/components/ui/button"
 import { useQuery } from "@tanstack/react-query"
 import axios from "axios"
+import { buildApiUrl } from "@/lib/api/client"
 
 interface RecordPair {
     id: string
@@ -22,7 +23,7 @@ export default function ActiveLearning() {
     const { data, isLoading, refetch } = useQuery({
         queryKey: ['active-learning-pairs'],
         queryFn: async () => {
-            const res = await axios.get('http://127.0.0.1:8000/active-learning/pairs')
+            const res = await axios.get(buildApiUrl('/active-learning/pairs'))
             return res.data.pairs as RecordPair[]
         }
     })

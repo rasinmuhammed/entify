@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts'
 import { TrendingUp, BarChart3 } from 'lucide-react'
+import { fetchApiJson } from '@/lib/api/client'
 
 interface ScoreDistributionProps {
     currentThreshold?: number
@@ -31,14 +32,7 @@ export function ScoreDistribution({ currentThreshold = 0.5 }: ScoreDistributionP
         const fetchDistribution = async () => {
             try {
                 setLoading(true)
-                const response = await fetch('http://localhost:8000/api/score-distribution')
-
-                if (!response.ok) {
-                    const errorData = await response.json()
-                    throw new Error(errorData.detail || 'Failed to fetch distribution')
-                }
-
-                const result = await response.json()
+                const result = await fetchApiJson<DistributionData>('/api/score-distribution')
                 setData(result)
                 setError(null)
             } catch (err) {

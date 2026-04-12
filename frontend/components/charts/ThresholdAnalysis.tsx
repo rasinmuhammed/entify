@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts'
 import { Activity, AlertCircle } from 'lucide-react'
+import { fetchApiJson } from '@/lib/api/client'
 
 interface ThresholdAnalysisProps {
     currentThreshold?: number
@@ -34,14 +35,7 @@ export function ThresholdAnalysis({ currentThreshold = 0.5, onThresholdChange }:
         const fetchAnalysis = async () => {
             try {
                 setLoading(true)
-                const response = await fetch('http://localhost:8000/api/threshold-analysis')
-
-                if (!response.ok) {
-                    const errorData = await response.json()
-                    throw new Error(errorData.detail || 'Failed to fetch analysis')
-                }
-
-                const result = await response.json()
+                const result = await fetchApiJson<AnalysisData>('/api/threshold-analysis')
                 setData(result)
                 setError(null)
             } catch (err) {

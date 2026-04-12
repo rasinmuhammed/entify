@@ -7,9 +7,13 @@ import base64
 from typing import Dict, List, Optional, Any
 from pydantic import BaseModel, Field
 import pandas as pd
-from engine import EntityResolutionEngine, RuleTranspiler
 import os
 import re
+
+try:
+    from engine import EntityResolutionEngine, RuleTranspiler
+except ImportError:
+    from backend.engine import EntityResolutionEngine, RuleTranspiler
 
 
 class SemanticBlockingConfig(BaseModel):
@@ -335,14 +339,14 @@ class SplinkService:
 
         try:
             # Attach metadata DB for mapping lookup
-            self.con.execute(f"ATTACH '{metadata_db_path}' AS semantic_meta")
+            self.engine.con.execute(f"ATTACH '{metadata_db_path}' AS semantic_meta")
         except Exception as e:
             print(f"⚠️ Failed to attach metadata DB: {e}")
             return
 
         # Ensure metadata tables exist
         try:
-            table_exists = self.con.execute(
+            table_exists = self.engine.con.execute(
                 """
                 SELECT COUNT(*) FROM semantic_meta.information_schema.tables
                 WHERE table_name = 'semantic_blocking_values'
@@ -351,20 +355,20 @@ class SplinkService:
             if not table_exists:
                 print("⚠️ Semantic blocking metadata tables not found.")
                 try:
-                    self.con.execute("DETACH semantic_meta")
+                    self.engine.con.execute("DETACH semantic_meta")
                 except Exception:
                     pass
                 return
         except Exception as e:
             print(f"⚠️ Failed to verify metadata tables: {e}")
             try:
-                self.con.execute("DETACH semantic_meta")
+                self.engine.con.execute("DETACH semantic_meta")
             except Exception:
                 pass
             return
 
         # Fetch existing columns
-        col_info = self.con.execute(f"PRAGMA table_info({table_name})").fetchdf()
+        col_info = self.engine.con.execute(f"PRAGMA table_info({table_name})").fetchdf()
         existing_columns = set(col_info['name'])
 
         for config in semantic_blocking:
@@ -378,7 +382,7 @@ class SplinkService:
 
             if derived_col not in existing_columns:
                 try:
-                    self.con.execute(f'ALTER TABLE "{table_name}" ADD COLUMN "{derived_col}" TEXT')
+                    self.engine.con.execute(f'ALTER TABLE "{table_name}" ADD COLUMN "{derived_col}" TEXT')
                     existing_columns.add(derived_col)
                 except Exception as e:
                     print(f"⚠️ Failed to add column {derived_col}: {e}")
@@ -393,13 +397,13 @@ class SplinkService:
                     WHERE m.run_id = ?
                       AND CAST(t."{column}" AS VARCHAR) = m.value
                 """
-                self.con.execute(update_sql, [run_id])
+                self.engine.con.execute(update_sql, [run_id])
             except Exception as e:
                 print(f"⚠️ Failed to populate semantic blocking column {derived_col}: {e}")
 
         # Detach to avoid locking
         try:
-            self.con.execute("DETACH semantic_meta")
+            self.engine.con.execute("DETACH semantic_meta")
         except Exception:
             pass
     

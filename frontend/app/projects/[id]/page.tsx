@@ -1,8 +1,7 @@
 "use client"
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { useUser } from '@clerk/nextjs'
 import { useWasm } from '@/lib/wasm/WasmContext'
 import { useDatasetStore } from '@/lib/store/useDatasetStore'
 import { createClient } from '@/utils/supabase/client'
@@ -28,10 +27,11 @@ import {
     Trash2,
     Edit2,
     FlaskConical,
-    Lock
+    Lock,
+    AlertCircle
 } from "lucide-react"
 import { PhaseStatus, INITIAL_PHASE_STATUS, PhaseId, PhaseInfo } from '@/types/phaseStatus'
-import { validatePhaseAccess, getPhaseRequirements } from '@/lib/phaseValidation'
+import { validatePhaseAccess } from '@/lib/phaseValidation'
 import { handleRenameProject, handleDeleteProject } from "@/lib/projectManagement"
 import {
     DropdownMenu,
@@ -40,7 +40,6 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import dynamic from 'next/dynamic'
 import { DataTable } from "@/components/DataTable"
 import { ColumnDef } from "@tanstack/react-table"
 import { BlockingRuleBuilder } from "@/components/BlockingRuleBuilder"
@@ -48,7 +47,6 @@ import { ComparisonBuilder } from "@/components/ComparisonBuilder"
 import { TrainingPanel } from "@/components/TrainingPanel"
 import { ClusterVisualization } from '@/components/matching/ClusterVisualization'
 import { MatchingInsightsPanel } from '@/components/matching/MatchingInsightsPanel'
-import DataExplorer from "@/app/data/page"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { DataManager } from "@/components/workspace/DataManager"
@@ -58,6 +56,18 @@ import { ModelEvaluationDashboard } from "@/components/charts/ModelEvaluationDas
 import { LaboratoryDashboard } from "@/components/laboratory/LaboratoryDashboard"
 import { PhaseGuidanceCard } from "@/components/PhaseGuidanceCard"
 import { SmartBlockingPanel, SemanticSuggestion } from "@/components/blocking/SmartBlockingPanel"
+import { Input } from "@/components/ui/input"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog"
+import { buildApiUrl, fetchApiText } from "@/lib/api/client"
+import { loadProjectBundle, saveDatasetPrimaryKey } from "@/lib/projects/persistence"
+import { useProjectAutosave } from "@/lib/projects/useProjectAutosave"
 
 
 const PHASES = [
@@ -73,7 +83,6 @@ const PHASES = [
 export default function ProjectPage() {
     const params = useParams()
     const router = useRouter()
-    const { user } = useUser()
     const { duckDB, isReady } = useWasm()
     const { activeProject, setActiveProject, activeDataset, setActiveDataset } = useDatasetStore()
     const supabase = createClient()
@@ -100,6 +109,10 @@ export default function ProjectPage() {
     const [globalSettings, setGlobalSettings] = useState({
         probability_two_random_records_match: 0.0001
     })
+    const [pageError, setPageError] = useState<string | null>(null)
+    const [renameDialogOpen, setRenameDialogOpen] = useState(false)
+    const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+    const [renameValue, setRenameValue] = useState("")
 
     // Helper to update phase status
     const updatePhaseStatus = (phase: PhaseId, updates: Partial<PhaseInfo>) => {
@@ -109,159 +122,28 @@ export default function ProjectPage() {
         }))
     }
 
-    // Auto-save blocking rules to database
-    useEffect(() => {
-        if (activeProject?.id && blockingRules.length > 0) {
-            const saveRules = async () => {
-                console.log('Saving blocking rules...', blockingRules)
-                const { error } = await supabase
-                    .from('projects')
-                    .update({
-                        blocking_rules: blockingRules,
-                        last_updated: new Date().toISOString()
-                    })
-                    .eq('id', activeProject.id)
+    const baseProjectConfiguration = useMemo(
+        () => (activeProject?.configuration && typeof activeProject.configuration === "object"
+            ? activeProject.configuration
+            : {}),
+        [activeProject?.configuration]
+    )
 
-                if (error) {
-                    console.error('Failed to save blocking rules:', error.message)
-                } else {
-                    console.log('✅ Blocking rules auto-saved')
-                }
-            }
-            const timeout = setTimeout(saveRules, 1000) // Debounce
-            return () => clearTimeout(timeout)
+    useProjectAutosave({
+        supabase,
+        projectId: activeProject?.id,
+        blockingRules,
+        comparisons,
+        globalSettings,
+        threshold,
+        semanticBlocking,
+        activePhase,
+        baseConfiguration: baseProjectConfiguration,
+        onWarning: (message) => {
+            console.warn(message)
+            setPageError(message)
         }
-    }, [blockingRules, activeProject?.id])
-
-    // Auto-save comparisons to database
-    useEffect(() => {
-        if (activeProject?.id && comparisons.length > 0) {
-            const saveComparisons = async () => {
-                try {
-                    const { error } = await supabase
-                        .from('projects')
-                        .update({
-                            comparisons: comparisons,  // Use new column name
-                            last_updated: new Date().toISOString()
-                        })
-                        .eq('id', activeProject.id)
-
-                    if (!error) {
-                        console.log('✅ Comparisons auto-saved')
-                    } else {
-                        console.warn('Comparisons save failed (migration pending?):', error)
-                    }
-                } catch (e) {
-                    console.error('Failed to auto-save comparisons:', e)
-                }
-            }
-            const timeout = setTimeout(saveComparisons, 1000)
-            return () => clearTimeout(timeout)
-        }
-    }, [comparisons, activeProject?.id])
-
-    // Auto-save global settings
-    useEffect(() => {
-        if (activeProject?.id) {
-            const saveSettings = async () => {
-                const { error } = await supabase
-                    .from('projects')
-                    .update({
-                        global_settings: globalSettings,
-                        last_updated: new Date().toISOString()
-                    })
-                    .eq('id', activeProject.id)
-
-                if (error) {
-                    console.error('Failed to save global settings:', error)
-                    console.error('Error details:', {
-                        message: error.message,
-                        details: error.details,
-                        hint: error.hint,
-                        code: error.code
-                    })
-                }
-            }
-            const timeout = setTimeout(saveSettings, 1000)
-            return () => clearTimeout(timeout)
-        }
-    }, [globalSettings, activeProject?.id])
-
-    // Auto-save threshold
-    useEffect(() => {
-        if (activeProject?.id && threshold !== 0.5) {  // Only save if changed from default
-            const saveThreshold = async () => {
-                const { error } = await supabase
-                    .from('projects')
-                    .update({
-                        threshold: threshold,
-                        last_updated: new Date().toISOString()
-                    })
-                    .eq('id', activeProject.id)
-
-                if (!error) {
-                    console.log('✅ Threshold auto-saved:', threshold)
-                } else {
-                    console.warn('Threshold save failed (migration pending?):', error)
-                }
-            }
-            const timeout = setTimeout(saveThreshold, 1000)
-            return () => clearTimeout(timeout)
-        }
-    }, [threshold, activeProject?.id])
-
-    // Auto-save semantic blocking config
-    useEffect(() => {
-        if (activeProject?.id) {
-            const saveSemanticConfig = async () => {
-                try {
-                    const currentConfig = activeProject?.configuration || {}
-                    const nextConfig = {
-                        ...currentConfig,
-                        semantic_blocking: semanticBlocking
-                    }
-                    const { error } = await supabase
-                        .from('projects')
-                        .update({
-                            configuration: nextConfig,
-                            last_updated: new Date().toISOString()
-                        })
-                        .eq('id', activeProject.id)
-
-                    if (error) {
-                        console.warn('Semantic config save failed:', error)
-                    }
-                } catch (e) {
-                    console.error('Failed to save semantic config:', e)
-                }
-            }
-            const timeout = setTimeout(saveSemanticConfig, 1000)
-            return () => clearTimeout(timeout)
-        }
-    }, [semanticBlocking, activeProject?.id])
-
-    // Auto-save active phase
-    useEffect(() => {
-        if (activeProject?.id && activePhase) {
-            const savePhase = async () => {
-                const { error } = await supabase
-                    .from('projects')
-                    .update({
-                        active_phase: activePhase,
-                        last_updated: new Date().toISOString()
-                    })
-                    .eq('id', activeProject.id)
-
-                if (error) {
-                    console.warn('Phase save failed (migration pending?):', error)
-                } else {
-                    console.log('✅ Active phase saved:', activePhase)
-                }
-            }
-            const timeout = setTimeout(savePhase, 500)
-            return () => clearTimeout(timeout)
-        }
-    }, [activePhase, activeProject?.id])
+    })
 
     // Track phase completion: Profile phase
     useEffect(() => {
@@ -331,27 +213,17 @@ export default function ProjectPage() {
         if (!activeDataset?.id) return
 
         try {
-            const { error } = await supabase
-                .from('datasets')
-                .update({
-                    primary_key_column: columnName
-                })
-                .eq('id', activeDataset.id)
+            const { error } = await saveDatasetPrimaryKey(supabase, activeDataset.id, columnName)
 
             if (error) {
-                console.warn('Database save failed (column may not exist yet):', error)
-                console.log('💡 Storing primary key in localStorage as fallback')
+                console.warn('Database save failed:', error)
+                setPageError(`Primary key could not be persisted to Supabase yet: ${error.message}`)
 
-                // Fallback: Store in localStorage until migration is applied
                 const storageKey = `primary_key_${activeDataset.id}`
                 localStorage.setItem(storageKey, columnName)
-
-                // Show user-friendly message
-                console.log('⚠️ Note: To persist primary key across sessions, apply the database migration:')
-                console.log('   Run this SQL in Supabase dashboard:')
-                console.log('   ALTER TABLE datasets ADD COLUMN IF NOT EXISTS primary_key_column TEXT;')
             } else {
                 console.log('✅ Primary key saved to database:', columnName)
+                setPageError(null)
             }
 
             // Update local state regardless of database save
@@ -428,86 +300,31 @@ export default function ProjectPage() {
     const loadProject = async (id: string) => {
         try {
             console.log('Loading project:', id)
+            setPageError(null)
 
-            // Get project
-            const { data: project, error: projectError } = await supabase
-                .from('projects')
-                .select('*')
-                .eq('id', id)
-                .single()
-
-            if (projectError) {
-                console.error('Project fetch error:', projectError)
-                throw new Error(`Failed to load project: ${projectError.message} `)
-            }
-
-            if (!project) {
-                throw new Error('Project not found')
-            }
+            const bundle = await loadProjectBundle(supabase, id)
+            const { project, dataset } = bundle
 
             console.log('✅ Project loaded:', project.name)
             setActiveProject(project)
+            setRenameValue(project.name)
+            setBlockingRules(bundle.blockingRules)
+            setComparisons(bundle.comparisons)
+            setGlobalSettings(bundle.globalSettings)
+            setSemanticBlocking(bundle.semanticBlocking)
+            setThreshold(bundle.threshold)
+            setActivePhase(bundle.activePhase)
 
-            // Load saved blocking rules and comparisons
-            if (project.blocking_rules && Array.isArray(project.blocking_rules)) {
-                setBlockingRules(project.blocking_rules)
-                console.log('📋 Loaded blocking rules:', project.blocking_rules.length)
-            }
-
-            // Try new column name first, fallback to old
-            const comparisonsData = project.comparisons || project.comparison_config
-            if (comparisonsData && Array.isArray(comparisonsData)) {
-                setComparisons(comparisonsData)
-                console.log('📊 Loaded comparisons:', comparisonsData.length)
-            }
-
-            if (project.global_settings) {
-                setGlobalSettings(project.global_settings)
-                console.log('⚙️  Loaded global settings')
-            }
-
-            // Load semantic blocking configuration (stored in configuration)
-            if (project.configuration?.semantic_blocking && Array.isArray(project.configuration.semantic_blocking)) {
-                setSemanticBlocking(project.configuration.semantic_blocking)
-                console.log('🧠 Loaded semantic blocking config:', project.configuration.semantic_blocking.length)
-            }
-
-            // Load threshold
-            if (project.threshold !== undefined && project.threshold !== null) {
-                setThreshold(project.threshold)
-                console.log('🎯 Loaded threshold:', project.threshold)
-            }
-
-            // Load active phase
-            if (project.active_phase) {
-                setActivePhase(project.active_phase)
-                console.log('📍 Restored active phase:', project.active_phase)
-            }
-
-            // Get dataset
-            const { data: dataset, error: datasetError } = await supabase
-                .from('datasets')
-                .select('*')
-                .eq('id', project.dataset_id)
-                .single()
-
-            if (datasetError || !dataset) {
-                console.error('Dataset fetch error:', datasetError)
-                throw new Error('Dataset not found')
-            }
-
-            console.log('📂 Loaded dataset:', dataset)
             setActiveDataset(dataset)
 
             if (!dataset.file_path) {
                 console.error('❌ Dataset missing file_path:', dataset)
-                alert('This dataset is missing its file path. Please re-upload it.')
+                setPageError('This dataset is missing its file path. Please re-upload it from the Data Vault.')
             }
             setLoading(false)
         } catch (error: any) {
             console.error("Error loading project:", error)
-            alert(`Failed to load project: ${error.message || 'Unknown error'} `)
-            // Redirect to vault on error
+            setPageError(`Failed to load project: ${error.message || 'Unknown error'}`)
             router.push('/vault')
             setLoading(false)
         }
@@ -583,11 +400,9 @@ export default function ProjectPage() {
 
             if (downloadError || !fileData) {
                 console.error('Failed to download file:', downloadError)
-                alert(
-                    '❌ Failed to Load Dataset\n\n' +
-                    `Error: ${downloadError?.message || 'File not found in storage'}\n\n` +
-                    'The file may have been deleted from storage.\n' +
-                    'Please re-upload your dataset in the Data Vault.'
+                setPageError(
+                    `Failed to load dataset: ${downloadError?.message || 'File not found in storage'}. ` +
+                    'Please re-upload it from the Data Vault.'
                 )
                 router.push('/vault')
                 return
@@ -670,7 +485,7 @@ export default function ProjectPage() {
             setIsDataLoaded(true)
         } catch (error: any) {
             console.error('Failed to load data into DuckDB:', error)
-            alert(`Failed to load data: ${error.message}`)
+            setPageError(`Failed to load data: ${error.message}`)
             setIsDataLoaded(false)
         } finally {
             setLoading(false)
@@ -826,7 +641,7 @@ export default function ProjectPage() {
 
         } catch (error) {
             console.error("Match failed", error)
-            alert(`Entity resolution failed: ${error instanceof Error ? error.message : 'Unknown error'} `)
+            setPageError(`Entity resolution failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
         } finally {
             setIsProcessing(false)
         }
@@ -961,10 +776,8 @@ export default function ProjectPage() {
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                                 <DropdownMenuItem onClick={() => {
-                                    const newName = prompt('Enter new project name:', activeProject?.name)
-                                    if (newName && activeProject) {
-                                        handleRenameProject(activeProject.id, newName, router)
-                                    }
+                                    setRenameValue(activeProject?.name || "")
+                                    setRenameDialogOpen(true)
                                 }}>
                                     <Edit2 className="w-4 h-4 mr-2" />
                                     Rename Project
@@ -972,28 +785,7 @@ export default function ProjectPage() {
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem
                                     className="text-destructive focus:text-destructive"
-                                    onClick={async () => {
-                                        if (activeProject) {
-                                            const confirmed = confirm(
-                                                `⚠️ Delete Project "${activeProject.name}"?\n\n` +
-                                                `This will permanently delete:\n` +
-                                                `• All project data and configurations\n` +
-                                                `• Blocking rules and comparisons\n` +
-                                                `• Training data and results\n\n` +
-                                                `This action cannot be undone!`
-                                            )
-                                            if (confirmed) {
-                                                setIsDeleting(true)
-                                                try {
-                                                    await handleDeleteProject(activeProject.id, router)
-                                                } catch (error) {
-                                                    console.error('Failed to delete project:', error)
-                                                    alert('Failed to delete project. Please try again.')
-                                                    setIsDeleting(false)
-                                                }
-                                            }
-                                        }
-                                    }}
+                                    onClick={() => setDeleteDialogOpen(true)}
                                     disabled={isDeleting}
                                 >
                                     {isDeleting ? (
@@ -1021,6 +813,18 @@ export default function ProjectPage() {
                 {/* Workspace Content */}
                 <main className="flex-1 overflow-y-auto p-6">
                     <div className="max-w-7xl mx-auto space-y-6">
+                        {pageError && (
+                            <div className="flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                                <div className="flex-1">
+                                    <p>{pageError}</p>
+                                </div>
+                                <Button variant="ghost" size="sm" onClick={() => setPageError(null)}>
+                                    Dismiss
+                                </Button>
+                            </div>
+                        )}
+
                         <div className="flex items-end justify-between mb-6">
                             <div>
                                 <h1 className="text-2xl font-semibold tracking-tight text-foreground">
@@ -1313,16 +1117,11 @@ export default function ProjectPage() {
 
                                                             console.log('📥 Exporting enriched clusters...')
 
-                                                            const response = await fetch(
-                                                                `http://localhost:8000/api/export-clusters?table_name=${tableName}&threshold=${threshold}&id_column=${idColumn}`
-                                                            )
-
-                                                            if (!response.ok) {
-                                                                const error = await response.json()
-                                                                throw new Error(error.detail || 'Export failed')
-                                                            }
-
-                                                            const csvData = await response.text()
+                                                            const csvData = await fetchApiText('/api/export-clusters', undefined, {
+                                                                table_name: tableName,
+                                                                threshold,
+                                                                id_column: idColumn,
+                                                            })
                                                             const blob = new Blob([csvData], { type: 'text/csv' })
                                                             const url = URL.createObjectURL(blob)
                                                             const a = document.createElement('a')
@@ -1336,7 +1135,7 @@ export default function ProjectPage() {
                                                             console.log('✅ Enriched clusters exported successfully')
                                                         } catch (error) {
                                                             console.error('Export failed:', error)
-                                                            alert(`Export failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+                                                            setPageError(`Export failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
                                                         }
                                                     }}
                                                 />
@@ -1359,6 +1158,89 @@ export default function ProjectPage() {
                     </div>
                 </main>
             </div>
+
+            <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Rename Project</DialogTitle>
+                        <DialogDescription>
+                            Update the project name shown in the vault and workspace.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <Input
+                        value={renameValue}
+                        onChange={(event) => setRenameValue(event.target.value)}
+                        placeholder="Project name"
+                    />
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setRenameDialogOpen(false)}>
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={async () => {
+                                if (!activeProject) return
+                                try {
+                                    await handleRenameProject(activeProject.id, renameValue, router)
+                                    setActiveProject({
+                                        ...activeProject,
+                                        name: renameValue.trim(),
+                                    })
+                                    setRenameDialogOpen(false)
+                                    setPageError(null)
+                                } catch (error) {
+                                    console.error('Failed to rename project:', error)
+                                    setPageError(`Failed to rename project: ${error instanceof Error ? error.message : 'Unknown error'}`)
+                                }
+                            }}
+                        >
+                            Save Name
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Delete Project</DialogTitle>
+                        <DialogDescription>
+                            This permanently removes the project, its saved configuration, and its results.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-muted-foreground">
+                        {activeProject?.name ? `Project: ${activeProject.name}` : 'This action cannot be undone.'}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setDeleteDialogOpen(false)} disabled={isDeleting}>
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            disabled={isDeleting || !activeProject}
+                            onClick={async () => {
+                                if (!activeProject) return
+                                setIsDeleting(true)
+                                try {
+                                    await handleDeleteProject(activeProject.id, router)
+                                } catch (error) {
+                                    console.error('Failed to delete project:', error)
+                                    setPageError(`Failed to delete project: ${error instanceof Error ? error.message : 'Unknown error'}`)
+                                    setIsDeleting(false)
+                                }
+                            }}
+                        >
+                            {isDeleting ? (
+                                <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    Deleting...
+                                </>
+                            ) : (
+                                'Delete Project'
+                            )}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

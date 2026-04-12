@@ -13,6 +13,7 @@ import { useQuery } from "@tanstack/react-query"
 import { useDatasetStore } from "@/lib/store/useDatasetStore"
 import Link from "next/link"
 import { GlassCard } from "@/components/ui/glass-card"
+import { buildApiUrl } from "@/lib/api/client"
 
 export default function RuleStudio() {
     const { rules, addRule } = useBlockingStore()
@@ -40,7 +41,7 @@ export default function RuleStudio() {
         queryKey: ['preview', activeDataset?.name],
         queryFn: async () => {
             if (!activeDataset?.name) return []
-            const res = await axios.get(`http://127.0.0.1:8000/preview/${activeDataset.name}`)
+            const res = await axios.get(buildApiUrl(`/preview/${activeDataset.name}`))
             return res.data.data
         },
         enabled: !!activeDataset?.name
@@ -58,7 +59,7 @@ export default function RuleStudio() {
                 threshold: 0.5
             }
 
-            await axios.post('http://127.0.0.1:8000/run-match', {
+            await axios.post(buildApiUrl('/run-match'), {
                 table_name: activeDataset?.name,
                 settings: settings,
                 blocking_rules: rules

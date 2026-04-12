@@ -16,6 +16,7 @@ import {
     Clock
 } from "lucide-react"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts"
+import { buildApiUrl } from "@/lib/api/client"
 
 interface MatchStatistics {
     dataset: {
@@ -78,9 +79,7 @@ export function MatchingInsightsPanel({
         try {
             setLoading(true)
             setError(null)
-            const response = await fetch(
-                `http://localhost:8000/api/match-statistics?table_name=${tableName}&threshold=${threshold}`
-            )
+            const response = await fetch(buildApiUrl('/api/match-statistics', { table_name: tableName, threshold }))
 
             if (!response.ok) {
                 throw new Error("Failed to fetch statistics")

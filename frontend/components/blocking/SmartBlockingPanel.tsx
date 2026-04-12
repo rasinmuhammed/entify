@@ -10,8 +10,7 @@ import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Loader2, Sparkles, Check, Database } from "lucide-react"
 import { AsyncDuckDB } from "@duckdb/duckdb-wasm"
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+import { buildApiUrl } from "@/lib/api/client"
 
 export interface SemanticSuggestion {
     column: string
@@ -105,7 +104,7 @@ export function SmartBlockingPanel({
             const csvData = csvRows.join("\n")
             const encoded = encodeBase64(csvData)
 
-            const response = await fetch(`${API_BASE_URL}/api/blocking/suggestions`, {
+            const response = await fetch(buildApiUrl('/api/blocking/suggestions'), {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({

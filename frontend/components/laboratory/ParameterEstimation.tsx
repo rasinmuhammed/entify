@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Settings, Play, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react'
 import { useDatasetStore } from '@/lib/store/useDatasetStore'
+import { buildApiUrl } from '@/lib/api/client'
 
 interface ParameterEstimationProps {
     blockingRules: string[]
@@ -23,7 +24,7 @@ export function ParameterEstimation({ blockingRules }: ParameterEstimationProps)
         setLastResult(null)
 
         try {
-            const response = await fetch('http://localhost:8000/api/estimate-parameters', {
+            const response = await fetch(buildApiUrl('/api/estimate-parameters'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ blocking_rule: selectedRule })

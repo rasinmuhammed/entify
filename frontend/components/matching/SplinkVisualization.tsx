@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Loader2, RefreshCw, AlertCircle, BarChart3, Sliders, Eye, TrendingUp, GitCompare } from 'lucide-react'
 import { GlassCard } from '@/components/ui/glass-card'
+import { buildApiUrl } from '@/lib/api/client'
 
 interface SplinkVisualizationProps {
     type?: 'match_weights' | 'waterfall' | 'parameter_estimates' | 'threshold_selection' | 'comparison_viewer' | 'all'
@@ -40,28 +41,28 @@ export function SplinkVisualization({
             title: 'Match Weights',
             description: 'Distribution of match probabilities across all comparisons',
             icon: BarChart3,
-            url: 'http://localhost:8000/api/splink/charts/match-weights'
+            url: buildApiUrl('/api/splink/charts/match-weights')
         },
         {
             key: 'parameter_estimates',
             title: 'Parameter Estimates',
             description: 'M and U probability parameters for each comparison level',
             icon: TrendingUp,
-            url: 'http://localhost:8000/api/splink/charts/parameter-estimates'
+            url: buildApiUrl('/api/splink/charts/parameter-estimates')
         },
         {
             key: 'threshold_selection',
             title: 'Threshold Selection',
             description: 'Interactive tool to explore different match thresholds',
             icon: Sliders,
-            url: 'http://localhost:8000/api/splink/charts/threshold-selection'
+            url: buildApiUrl('/api/splink/charts/threshold-selection')
         },
         {
             key: 'comparison_viewer',
             title: 'Comparison Viewer',
             description: 'Side-by-side view of example record comparisons',
             icon: Eye,
-            url: 'http://localhost:8000/api/splink/charts/comparison-viewer'
+            url: buildApiUrl('/api/splink/charts/comparison-viewer')
         },
         {
             key: 'waterfall',
@@ -69,7 +70,10 @@ export function SplinkVisualization({
             description: 'Detailed match probability breakdown for a specific pair',
             icon: GitCompare,
             url: (rid1, rid2) =>
-                `http://localhost:8000/api/splink/charts/waterfall?record_id_1=${encodeURIComponent(rid1 || '')}&record_id_2=${encodeURIComponent(rid2 || '')}`,
+                buildApiUrl('/api/splink/charts/waterfall', {
+                    record_id_1: rid1 || '',
+                    record_id_2: rid2 || '',
+                }),
             requiresRecords: true
         }
     ]

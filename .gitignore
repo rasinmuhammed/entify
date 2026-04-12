@@ -13,4 +13,5 @@ backend/uploads/
 backend/.env.local
 
 venv/
+.venv/
 uploads/

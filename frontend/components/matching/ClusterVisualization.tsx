@@ -22,6 +22,7 @@ import {
 import { SplinkVisualization } from './SplinkVisualization'
 import { DetailedClusterView } from './DetailedClusterView'
 import { AsyncDuckDB } from '@duckdb/duckdb-wasm'
+import { buildApiUrl } from '@/lib/api/client'
 
 interface Entity {
     [key: string]: any
@@ -88,7 +89,7 @@ export function ClusterVisualization({
                         threshold: minScore.toString(),
                         id_column: primaryKeyColumn || 'unique_id'
                     })
-                    const response = await fetch(`http://localhost:8000/api/clusters?${params}`)
+                    const response = await fetch(`${buildApiUrl('/api/clusters')}?${params}`)
                     if (!response.ok) {
                         const errorText = await response.text()
                         let errorMessage = 'Failed to fetch cluster data'

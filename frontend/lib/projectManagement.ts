@@ -2,50 +2,53 @@ import { supabase } from '@/lib/supabase'
 
 // Project Management Functions
 
-export async function handleRenameProject(projectId: string, newName: string, router: any) {
+export async function renameProject(projectId: string, newName: string) {
     const trimmed = newName.trim()
     if (!trimmed) {
-        alert('Project name cannot be empty')
-        return
+        return { success: false, error: new Error('Project name cannot be empty') }
     }
 
-    try {
-        const { error } = await supabase
-            .from('projects')
-            .update({ name: trimmed })
-            .eq('id', projectId)
+    const { error } = await supabase
+        .from('projects')
+        .update({ name: trimmed })
+        .eq('id', projectId)
 
-        if (error) throw error
-
-        alert('✅ Project renamed successfully!')
-        // Refresh page to show new name
-        router.refresh()
-    } catch (error) {
-        console.error('Error renaming project:', error)
-        alert('Failed to rename project')
+    if (error) {
+        return { success: false, error }
     }
+
+    return { success: true }
+}
+
+export async function deleteProject(projectId: string) {
+    const { error } = await supabase
+        .from('projects')
+        .delete()
+        .eq('id', projectId)
+
+    if (error) {
+        return { success: false, error }
+    }
+
+    return { success: true }
+}
+
+export async function handleRenameProject(projectId: string, newName: string, router: any) {
+    const result = await renameProject(projectId, newName)
+    if (!result.success) {
+        throw result.error
+    }
+
+    router.refresh()
 }
 
 export async function handleDeleteProject(projectId: string, router: any) {
-    if (!confirm('Are you sure you want to delete this project? This action cannot be undone.')) {
-        return
+    const result = await deleteProject(projectId)
+    if (!result.success) {
+        throw result.error
     }
 
-    try {
-        // Delete the project
-        const { error } = await supabase
-            .from('projects')
-            .delete()
-            .eq('id', projectId)
-
-        if (error) throw error
-
-        alert('✅ Project deleted successfully!')
-        router.push('/vault')
-    } catch (error) {
-        console.error('Error deleting project:', error)
-        alert('Failed to delete project')
-    }
+    router.push('/vault')
 }
 
 // Configuration Persistence Functions
@@ -80,6 +83,7 @@ export async function saveComparisonConfig(projectId: string, config: any[]) {
         const { error } = await supabase
             .from('projects')
             .update({
+                comparisons: config,
                 comparison_config: config,
                 last_updated: new Date().toISOString()
             })
@@ -101,7 +105,7 @@ export async function loadProjectConfig(projectId: string) {
     try {
         const { data, error } = await supabase
             .from('projects')
-            .select('blocking_rules, comparison_config')
+            .select('blocking_rules, comparisons, comparison_config')
             .eq('id', projectId)
             .single()
 
@@ -110,7 +114,7 @@ export async function loadProjectConfig(projectId: string) {
         return {
             success: true,
             blockingRules: data?.blocking_rules || [],
-            comparisonConfig: data?.comparison_config || []
+            comparisonConfig: data?.comparisons || data?.comparison_config || []
         }
     } catch (error) {
         console.error('Error loading project config:', error)
