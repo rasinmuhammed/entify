@@ -3,7 +3,7 @@
 import { useBlockingStore } from "@/lib/store/useBlockingStore"
 import { BlockingRuleCard } from "./BlockingRuleCard"
 import { Button } from "@/components/ui/button"
-import { Plus, Wand2, Save, Play } from "lucide-react"
+import { Plus, Wand2, Play } from "lucide-react"
 import { AnimatePresence, motion } from "framer-motion"
 import { compileAllRules } from "@/lib/transpiler/splinkSql"
 import { useState } from "react"
@@ -14,14 +14,27 @@ import { useDatasetStore } from "@/lib/store/useDatasetStore"
 import Link from "next/link"
 import { GlassCard } from "@/components/ui/glass-card"
 import { buildApiUrl } from "@/lib/api/client"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+
+type PreviewRow = Record<string, unknown>
 
 export default function RuleStudio() {
     const { rules, addRule } = useBlockingStore()
     const { activeDataset } = useDatasetStore()
     const [isRunning, setIsRunning] = useState(false)
+    const [runMessage, setRunMessage] = useState<string | null>(null)
 
-    // Use columns from active dataset, or fallback to empty
     const columns = activeDataset?.columns.map(c => c.column) || []
+
+    const { data: previewData } = useQuery<PreviewRow[]>({
+        queryKey: ['preview', activeDataset?.name],
+        queryFn: async () => {
+            if (!activeDataset?.name) return []
+            const res = await axios.get<{ data: PreviewRow[] }>(buildApiUrl(`/preview/${activeDataset.name}`))
+            return res.data.data
+        },
+        enabled: !!activeDataset?.name
+    })
 
     if (!activeDataset) {
         return (
@@ -37,39 +50,27 @@ export default function RuleStudio() {
         )
     }
 
-    const { data: previewData } = useQuery({
-        queryKey: ['preview', activeDataset?.name],
-        queryFn: async () => {
-            if (!activeDataset?.name) return []
-            const res = await axios.get(buildApiUrl(`/preview/${activeDataset.name}`))
-            return res.data.data
-        },
-        enabled: !!activeDataset?.name
-    })
-
     const handleRunMatch = async () => {
         setIsRunning(true)
-        const sqlRules = compileAllRules(rules)
+        setRunMessage(null)
 
         try {
-            // Default settings for now
             const settings = {
                 link_type: "dedupe_only",
-                unique_id_column_name: "unique_id", // Assuming 'unique_id' exists or user maps it. TODO: Add mapping
+                unique_id_column_name: "unique_id",
                 threshold: 0.5
             }
 
             await axios.post(buildApiUrl('/run-match'), {
-                table_name: activeDataset?.name,
-                settings: settings,
+                table_name: activeDataset.name,
+                settings,
                 blocking_rules: rules
             })
 
-            // Show success or redirect? For now just stop loading
-            alert("Match job started!")
-        } catch (e) {
-            console.error(e)
-            alert("Failed to start match job")
+            setRunMessage("Match job started.")
+        } catch (error) {
+            console.error(error)
+            setRunMessage("Failed to start match job.")
         } finally {
             setIsRunning(false)
         }
@@ -99,7 +100,12 @@ export default function RuleStudio() {
                 </div>
             </div>
 
-            {/* Data Preview */}
+            {runMessage && (
+                <Alert>
+                    <AlertDescription>{runMessage}</AlertDescription>
+                </Alert>
+            )}
+
             {previewData && previewData.length > 0 && (
                 <GlassCard className="p-4 overflow-x-auto">
                     <h3 className="text-sm font-medium text-muted-foreground mb-3">Data Preview (First 5 rows)</h3>
@@ -112,10 +118,10 @@ export default function RuleStudio() {
                             </tr>
                         </thead>
                         <tbody>
-                            {previewData.map((row: any, i: number) => (
+                            {previewData.map((row, i: number) => (
                                 <tr key={i} className="border-b border-white/5 hover:bg-white/5">
-                                    {Object.values(row).map((val: any, j) => (
-                                        <td key={j} className="py-2 px-3 text-muted-foreground">{String(val)}</td>
+                                    {Object.values(row).map((value, j) => (
+                                        <td key={j} className="py-2 px-3 text-muted-foreground">{String(value)}</td>
                                     ))}
                                 </tr>
                             ))}
@@ -124,7 +130,6 @@ export default function RuleStudio() {
                 </GlassCard>
             )}
 
-            {/* Help Guide */}
             <GlassCard className="bg-blue-500/5 border-blue-500/20 p-4">
                 <div className="flex gap-3">
                     <div className="p-2 bg-blue-500/10 rounded-lg h-fit">
@@ -134,14 +139,14 @@ export default function RuleStudio() {
                         <h3 className="font-medium text-blue-100">How to create a Blocking Rule</h3>
                         <p className="text-sm text-blue-200/70 mt-1">
                             Blocking rules tell the system how to find potential matches efficiently.
-                            Think of it as a "Search Strategy". For example:
+                            Think of it as a &quot;Search Strategy&quot;. For example:
                         </p>
                         <ul className="list-disc list-inside text-sm text-blue-200/70 mt-2 space-y-1">
-                            <li>"Find records where <strong>First Name</strong> sounds similar AND <strong>City</strong> is exactly the same."</li>
-                            <li>"Find records where <strong>Email</strong> is exactly the same."</li>
+                            <li>&quot;Find records where <strong>First Name</strong> sounds similar AND <strong>City</strong> is exactly the same.&quot;</li>
+                            <li>&quot;Find records where <strong>Email</strong> is exactly the same.&quot;</li>
                         </ul>
                         <p className="text-sm text-blue-200/70 mt-2">
-                            Create multiple rules to catch different types of matches (e.g., one rule for names, another for emails).
+                            Create multiple rules to catch different types of matches (for example, one rule for names and another for emails).
                         </p>
                     </div>
                 </div>
@@ -178,7 +183,6 @@ export default function RuleStudio() {
                 </motion.div>
             </div>
 
-            {/* Live SQL Preview */}
             <div className="mt-12 p-6 rounded-xl bg-black/40 border border-white/5">
                 <h3 className="text-sm font-medium text-muted-foreground mb-4">Generated SQL Preview</h3>
                 <div className="font-mono text-xs text-green-400 space-y-2">
@@ -188,7 +192,7 @@ export default function RuleStudio() {
                             <span>{sql}</span>
                         </div>
                     ))}
-                    {rules.length === 0 && <span className="text-white/20">// No rules defined</span>}
+                    {rules.length === 0 && <span className="text-white/20">{"// No rules defined"}</span>}
                 </div>
             </div>
         </div>

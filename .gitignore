@@ -9,6 +9,8 @@ frontend/.clerk/
 frontend/.env.local
 
 backend/__pycache__/
+backend/services/__pycache__/
+backend/tests/__pycache__/
 backend/uploads/
 backend/.env.local
 

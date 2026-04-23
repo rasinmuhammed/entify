@@ -7,4 +7,3 @@ python-multipart==0.0.26
 pydantic==2.12.5
 sentence-transformers==5.4.0
 scikit-learn==1.8.0
-sse-starlette==3.0.3

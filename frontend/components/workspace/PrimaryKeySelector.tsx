@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import { useMemo, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
@@ -27,38 +27,37 @@ export function PrimaryKeySelector({
 }: PrimaryKeySelectorProps) {
     const [selectedKey, setSelectedKey] = useState<string>(currentPrimaryKey || '')
 
-    // Auto-suggest the best candidate for primary key
-    useEffect(() => {
-        if (!currentPrimaryKey && columns.length > 0) {
-            // Look for columns with "id" in the name
-            const idColumns = columns.filter(col =>
-                col.column.toLowerCase().includes('id') ||
-                col.column.toLowerCase() === 'unique_id'
-            )
-
-            // Prefer columns with 100% uniqueness and no nulls
-            const perfectCandidates = idColumns.filter(col =>
-                col.null_percentage === 0 &&
-                col.unique_count > 0
-            )
-
-            if (perfectCandidates.length > 0) {
-                // Prefer 'id' or 'unique_id'
-                const best = perfectCandidates.find(c =>
-                    c.column === 'id' || c.column === 'unique_id' || c.column === 'id1'
-                ) || perfectCandidates[0]
-                setSelectedKey(best.column)
-            }
+    const recommendedKey = useMemo(() => {
+        if (currentPrimaryKey || columns.length === 0) {
+            return ''
         }
+
+        const idColumns = columns.filter(col =>
+            col.column.toLowerCase().includes('id') ||
+            col.column.toLowerCase() === 'unique_id'
+        )
+
+        const perfectCandidates = idColumns.filter(col =>
+            col.null_percentage === 0 &&
+            col.unique_count > 0
+        )
+
+        const best = perfectCandidates.find(c =>
+            c.column === 'id' || c.column === 'unique_id' || c.column === 'id1'
+        ) || perfectCandidates[0]
+
+        return best?.column || ''
     }, [columns, currentPrimaryKey])
 
+    const effectiveSelectedKey = selectedKey || currentPrimaryKey || recommendedKey
+
     const handleConfirm = () => {
-        if (selectedKey) {
-            onPrimaryKeySelected(selectedKey)
+        if (effectiveSelectedKey) {
+            onPrimaryKeySelected(effectiveSelectedKey)
         }
     }
 
-    const selectedColumn = columns.find(c => c.column === selectedKey)
+    const selectedColumn = columns.find(c => c.column === effectiveSelectedKey)
     const isValid = selectedColumn && selectedColumn.null_percentage === 0
 
     return (
@@ -75,7 +74,7 @@ export function PrimaryKeySelector({
             <CardContent className="space-y-4">
                 <div className="space-y-2">
                     <Label htmlFor="primary-key">Primary Key Column</Label>
-                    <Select value={selectedKey} onValueChange={setSelectedKey}>
+                    <Select value={effectiveSelectedKey} onValueChange={setSelectedKey}>
                         <SelectTrigger id="primary-key">
                             <SelectValue placeholder="Select a column..." />
                         </SelectTrigger>
@@ -144,7 +143,7 @@ export function PrimaryKeySelector({
                 <div className="flex justify-end">
                     <Button
                         onClick={handleConfirm}
-                        disabled={!selectedKey}
+                        disabled={!effectiveSelectedKey}
                         className="bg-blue-600 hover:bg-blue-700"
                     >
                         <Check className="h-4 w-4 mr-2" />

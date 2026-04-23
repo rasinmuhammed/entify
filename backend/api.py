@@ -14,7 +14,14 @@ import asyncio
 import json
 import time
 from queue import Queue
-from sse_starlette.sse import EventSourceResponse
+try:
+    from sse_starlette.sse import EventSourceResponse
+except ImportError:
+    from fastapi.responses import StreamingResponse
+
+    class EventSourceResponse(StreamingResponse):
+        def __init__(self, content, *args, **kwargs):
+            super().__init__(content, media_type="text/event-stream", *args, **kwargs)
 
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))

@@ -3,13 +3,19 @@
 import { UserButton } from "@clerk/nextjs"
 import { usePathname } from "next/navigation"
 import { Moon, Sun, Database } from "lucide-react"
-import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
+import { useState } from "react"
 
 export function Navbar() {
     const pathname = usePathname()
-    const { theme, setTheme } = useTheme()
+    const [theme, setTheme] = useState<"light" | "dark">(() => {
+        if (typeof document === "undefined") {
+            return "dark"
+        }
+
+        return document.documentElement.classList.contains("dark") ? "dark" : "light"
+    })
     const pathSegments = pathname.split('/').filter(Boolean)
 
     // Get the current page name
@@ -46,7 +52,12 @@ export function Navbar() {
                 <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+                    onClick={() => {
+                        const nextTheme = theme === "light" ? "dark" : "light"
+                        document.documentElement.classList.toggle("dark", nextTheme === "dark")
+                        localStorage.setItem("theme", nextTheme)
+                        setTheme(nextTheme)
+                    }}
                     className="h-9 w-9"
                     title={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
                 >

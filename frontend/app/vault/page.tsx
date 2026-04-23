@@ -1,13 +1,31 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { createClient } from "@/utils/supabase/client"
+import { useCallback, useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
+import {
+    AlertCircle,
+    Calendar,
+    Database,
+    Edit2,
+    FolderOpen,
+    Loader2,
+    MoreVertical,
+    Plus,
+    Trash2,
+} from "lucide-react"
+
 import { Upload } from "@/components/Upload"
-import { useDatasetStore } from "@/lib/store/useDatasetStore"
-import { useWasm } from "@/lib/wasm/WasmContext"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog"
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -15,35 +33,56 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Database, Plus, FolderOpen, Calendar, Loader2, MoreVertical, Edit2, Trash2 } from "lucide-react"
-import { useRouter } from "next/navigation"
+import { Input } from "@/components/ui/input"
+import { createClient } from "@/utils/supabase/client"
+
+type DeleteTarget =
+    | { id: string; name: string; kind: "project" | "dataset" }
+    | null
+
+type DatasetRecord = {
+    id: string
+    name: string
+    created_at: string
+    row_count?: number | null
+    file_path?: string | null
+}
+
+type ProjectRecord = {
+    id: string
+    name: string
+    created_at: string
+    status: string
+}
 
 export default function DataVault() {
-    const [datasets, setDatasets] = useState<any[]>([])
-    const [projects, setProjects] = useState<any[]>([])
+    const [datasets, setDatasets] = useState<DatasetRecord[]>([])
+    const [projects, setProjects] = useState<ProjectRecord[]>([])
     const [loading, setLoading] = useState(true)
     const [setupRequired, setSetupRequired] = useState(false)
-    const { setActiveDataset } = useDatasetStore()
-    const { duckDB, isReady } = useWasm()
+    const [pageError, setPageError] = useState<string | null>(null)
+    const [renameDialogOpen, setRenameDialogOpen] = useState(false)
+    const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+    const [renameProjectId, setRenameProjectId] = useState<string | null>(null)
+    const [renameValue, setRenameValue] = useState("")
+    const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null)
+
     const router = useRouter()
     const supabase = createClient()
 
-    useEffect(() => {
-        fetchData()
-    }, [])
-
-    const fetchData = async () => {
+    const fetchData = useCallback(async () => {
         setLoading(true)
         try {
-            // Fetch datasets
             const { data: datasetsData, error: datasetsError } = await supabase
-                .from('datasets')
-                .select('*')
-                .order('created_at', { ascending: false })
+                .from("datasets")
+                .select("*")
+                .order("created_at", { ascending: false })
 
             if (datasetsError) {
-                if (datasetsError.message.includes('relation "public.datasets" does not exist') ||
-                    datasetsError.message.includes('Could not find the table')) {
+                if (
+                    datasetsError.message.includes('relation "public.datasets" does not exist') ||
+                    datasetsError.message.includes("Could not find the table")
+                ) {
                     setSetupRequired(true)
                     setLoading(false)
                     return
@@ -51,38 +90,43 @@ export default function DataVault() {
                 throw datasetsError
             }
 
-            // Fetch projects
             const { data: projectsData, error: projectsError } = await supabase
-                .from('projects')
-                .select('*')
-                .order('created_at', { ascending: false })
+                .from("projects")
+                .select("*")
+                .order("created_at", { ascending: false })
 
             if (projectsError) throw projectsError
 
             setDatasets(datasetsData || [])
             setProjects(projectsData || [])
+            setPageError(null)
         } catch (error) {
             console.error("Error fetching data:", error)
+            setPageError("Failed to load datasets and projects from Supabase.")
         } finally {
             setLoading(false)
         }
-    }
+    }, [supabase])
 
-    const handleDatasetUploaded = async (dataset: any) => {
+    useEffect(() => {
+        fetchData()
+    }, [fetchData])
+
+    const handleDatasetUploaded = async () => {
         await fetchData()
     }
 
     const handleCreateProject = async (datasetId: string) => {
         try {
-            const dataset = datasets.find(d => d.id === datasetId)
+            const dataset = datasets.find((d) => d.id === datasetId)
             if (!dataset) return
 
             const { data: project, error } = await supabase
-                .from('projects')
+                .from("projects")
                 .insert({
                     name: `${dataset.name} - Deduplication`,
                     dataset_id: datasetId,
-                    status: 'draft'
+                    status: "draft",
                 })
                 .select()
                 .single()
@@ -92,85 +136,77 @@ export default function DataVault() {
             router.push(`/projects/${project.id}`)
         } catch (error) {
             console.error("Error creating project:", error)
+            setPageError("Failed to create project.")
+        }
+    }
+
+    const handleRenameProject = async (projectId: string, nextName: string) => {
+        if (!nextName.trim()) {
+            setPageError("Project name cannot be empty.")
+            return
+        }
+
+        try {
+            const { error } = await supabase
+                .from("projects")
+                .update({ name: nextName.trim() })
+                .eq("id", projectId)
+
+            if (error) throw error
+
+            await fetchData()
+            setRenameDialogOpen(false)
+        } catch (error) {
+            console.error("Error renaming project:", error)
+            setPageError("Failed to rename project.")
         }
     }
 
     const handleDeleteProject = async (projectId: string) => {
-        if (!confirm('Are you sure you want to delete this project? This action cannot be undone.')) {
-            return
-        }
-
         try {
             const { error } = await supabase
-                .from('projects')
+                .from("projects")
                 .delete()
-                .eq('id', projectId)
+                .eq("id", projectId)
 
             if (error) throw error
 
             await fetchData()
+            setDeleteDialogOpen(false)
         } catch (error) {
             console.error("Error deleting project:", error)
-            alert('Failed to delete project')
-        }
-    }
-
-    const handleRenameProject = async (projectId: string, currentName: string) => {
-        const newName = prompt('Enter new project name:', currentName)
-        if (!newName || newName === currentName) return
-
-        try {
-            const { error } = await supabase
-                .from('projects')
-                .update({ name: newName })
-                .eq('id', projectId)
-
-            if (error) throw error
-
-            await fetchData()
-        } catch (error) {
-            console.error("Error renaming project:", error)
-            alert('Failed to rename project')
+            setPageError("Failed to delete project.")
         }
     }
 
     const handleDeleteDataset = async (datasetId: string) => {
-        if (!confirm('Are you sure you want to delete this dataset? This will also delete any associated projects.')) {
-            return
-        }
-
         try {
-            const dataset = datasets.find(d => d.id === datasetId)
+            const dataset = datasets.find((d) => d.id === datasetId)
 
-            // Delete file from storage if it exists
             if (dataset?.file_path) {
                 const { error: storageError } = await supabase.storage
-                    .from('datasets')
+                    .from("datasets")
                     .remove([dataset.file_path])
 
                 if (storageError) {
-                    console.warn('Failed to delete file from storage:', storageError)
+                    console.warn("Failed to delete file from storage:", storageError)
                 }
             }
 
-            // Delete projects associated with this dataset
-            await supabase
-                .from('projects')
-                .delete()
-                .eq('dataset_id', datasetId)
+            await supabase.from("projects").delete().eq("dataset_id", datasetId)
 
-            // Delete dataset
             const { error } = await supabase
-                .from('datasets')
+                .from("datasets")
                 .delete()
-                .eq('id', datasetId)
+                .eq("id", datasetId)
 
             if (error) throw error
 
             await fetchData()
+            setDeleteDialogOpen(false)
         } catch (error) {
             console.error("Error deleting dataset:", error)
-            alert('Failed to delete dataset')
+            setPageError("Failed to delete dataset.")
         }
     }
 
@@ -207,7 +243,6 @@ export default function DataVault() {
 
     return (
         <div className="container max-w-7xl mx-auto py-8 px-6">
-            {/* Header */}
             <div className="mb-8">
                 <h1 className="text-3xl font-bold tracking-tight mb-2">Data Vault</h1>
                 <p className="text-muted-foreground">
@@ -215,7 +250,16 @@ export default function DataVault() {
                 </p>
             </div>
 
-            {/* Upload Section */}
+            {pageError && (
+                <div className="mb-6 flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <div className="flex-1">{pageError}</div>
+                    <Button variant="ghost" size="sm" onClick={() => setPageError(null)}>
+                        Dismiss
+                    </Button>
+                </div>
+            )}
+
             <Card className="mb-8">
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2">
@@ -231,7 +275,6 @@ export default function DataVault() {
                 </CardContent>
             </Card>
 
-            {/* Projects Section */}
             {projects.length > 0 && (
                 <div className="mb-8">
                     <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
@@ -257,14 +300,23 @@ export default function DataVault() {
                                                 </Button>
                                             </DropdownMenuTrigger>
                                             <DropdownMenuContent align="end">
-                                                <DropdownMenuItem onClick={() => handleRenameProject(project.id, project.name)}>
+                                                <DropdownMenuItem
+                                                    onClick={() => {
+                                                        setRenameProjectId(project.id)
+                                                        setRenameValue(project.name)
+                                                        setRenameDialogOpen(true)
+                                                    }}
+                                                >
                                                     <Edit2 className="h-4 w-4 mr-2" />
                                                     Rename
                                                 </DropdownMenuItem>
                                                 <DropdownMenuSeparator />
                                                 <DropdownMenuItem
-                                                    onClick={() => handleDeleteProject(project.id)}
                                                     className="text-red-600"
+                                                    onClick={() => {
+                                                        setDeleteTarget({ id: project.id, name: project.name, kind: "project" })
+                                                        setDeleteDialogOpen(true)
+                                                    }}
                                                 >
                                                     <Trash2 className="h-4 w-4 mr-2" />
                                                     Delete
@@ -274,7 +326,7 @@ export default function DataVault() {
                                     </div>
                                 </CardHeader>
                                 <CardContent>
-                                    <Badge variant={project.status === 'completed' ? 'default' : 'secondary'}>
+                                    <Badge variant={project.status === "completed" ? "default" : "secondary"}>
                                         {project.status}
                                     </Badge>
                                 </CardContent>
@@ -284,7 +336,6 @@ export default function DataVault() {
                 </div>
             )}
 
-            {/* Datasets Section */}
             {datasets.length > 0 && (
                 <div>
                     <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
@@ -315,7 +366,7 @@ export default function DataVault() {
                                                 </div>
                                                 {!dataset.file_path && (
                                                     <div className="mt-2 text-xs text-destructive">
-                                                        ⚠️ Re-upload required
+                                                        Re-upload required
                                                     </div>
                                                 )}
                                             </CardDescription>
@@ -326,7 +377,7 @@ export default function DataVault() {
                                                 disabled={!dataset.file_path}
                                             >
                                                 <Plus className="h-4 w-4 mr-2" />
-                                                {dataset.file_path ? 'Create Project' : 'Re-upload Required'}
+                                                {dataset.file_path ? "Create Project" : "Re-upload Required"}
                                             </Button>
                                             <DropdownMenu>
                                                 <DropdownMenuTrigger asChild>
@@ -336,8 +387,11 @@ export default function DataVault() {
                                                 </DropdownMenuTrigger>
                                                 <DropdownMenuContent align="end">
                                                     <DropdownMenuItem
-                                                        onClick={() => handleDeleteDataset(dataset.id)}
                                                         className="text-red-600"
+                                                        onClick={() => {
+                                                            setDeleteTarget({ id: dataset.id, name: dataset.name, kind: "dataset" })
+                                                            setDeleteDialogOpen(true)
+                                                        }}
                                                     >
                                                         <Trash2 className="h-4 w-4 mr-2" />
                                                         Delete Dataset
@@ -362,6 +416,67 @@ export default function DataVault() {
                     </p>
                 </div>
             )}
+
+            <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Rename Project</DialogTitle>
+                        <DialogDescription>
+                            Update the project name shown in your vault and workspace.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <Input value={renameValue} onChange={(event) => setRenameValue(event.target.value)} />
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setRenameDialogOpen(false)}>
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={async () => {
+                                if (!renameProjectId) return
+                                await handleRenameProject(renameProjectId, renameValue)
+                            }}
+                        >
+                            Save Name
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>
+                            {deleteTarget?.kind === "dataset" ? "Delete Dataset" : "Delete Project"}
+                        </DialogTitle>
+                        <DialogDescription>
+                            {deleteTarget?.kind === "dataset"
+                                ? "This also deletes projects linked to the dataset."
+                                : "This permanently removes the project and its saved configuration."}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-muted-foreground">
+                        {deleteTarget?.name}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            onClick={async () => {
+                                if (!deleteTarget) return
+                                if (deleteTarget.kind === "dataset") {
+                                    await handleDeleteDataset(deleteTarget.id)
+                                } else {
+                                    await handleDeleteProject(deleteTarget.id)
+                                }
+                            }}
+                        >
+                            Delete
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

@@ -3,12 +3,16 @@
 import { useEffect } from "react"
 
 import { saveProjectFields } from "@/lib/projects/persistence"
+import type { ComparisonConfig } from "@/lib/comparison/comparisonMethods"
+import { createClient } from "@/utils/supabase/client"
+
+type SupabaseClient = ReturnType<typeof createClient>
 
 interface UseProjectAutosaveOptions {
-  supabase: any
+  supabase: SupabaseClient
   projectId?: string
   blockingRules: string[]
-  comparisons: any[]
+  comparisons: ComparisonConfig[]
   globalSettings: Record<string, unknown>
   threshold: number
   semanticBlocking: Array<{ column: string; run_id: string; rule: string }>

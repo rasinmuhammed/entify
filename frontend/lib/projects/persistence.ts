@@ -1,5 +1,11 @@
+import { createClient } from "@/utils/supabase/client"
+import type { ComparisonConfig } from "@/lib/comparison/comparisonMethods"
+
+type SupabaseClient = ReturnType<typeof createClient>
+type SemanticBlockingConfig = { column: string; run_id: string; rule: string }
+
 export async function saveProjectFields(
-  supabase: any,
+  supabase: SupabaseClient,
   projectId: string,
   fields: Record<string, unknown>
 ) {
@@ -13,7 +19,7 @@ export async function saveProjectFields(
 }
 
 export async function saveDatasetPrimaryKey(
-  supabase: any,
+  supabase: SupabaseClient,
   datasetId: string,
   columnName: string
 ) {
@@ -25,7 +31,7 @@ export async function saveDatasetPrimaryKey(
     .eq("id", datasetId)
 }
 
-export async function loadProjectBundle(supabase: any, id: string) {
+export async function loadProjectBundle(supabase: SupabaseClient, id: string) {
   const { data: project, error: projectError } = await supabase
     .from("projects")
     .select("*")
@@ -54,9 +60,9 @@ export async function loadProjectBundle(supabase: any, id: string) {
     project,
     dataset,
     comparisons: Array.isArray(project.comparisons)
-      ? project.comparisons
+      ? (project.comparisons as ComparisonConfig[])
       : Array.isArray(project.comparison_config)
-        ? project.comparison_config
+        ? (project.comparison_config as ComparisonConfig[])
         : [],
     blockingRules: Array.isArray(project.blocking_rules) ? project.blocking_rules : [],
     globalSettings: project.global_settings || {
@@ -65,7 +71,7 @@ export async function loadProjectBundle(supabase: any, id: string) {
     activePhase: project.active_phase || "profile",
     threshold: project.threshold ?? 0.5,
     semanticBlocking: Array.isArray(project.configuration?.semantic_blocking)
-      ? project.configuration.semantic_blocking
+      ? (project.configuration.semantic_blocking as SemanticBlockingConfig[])
       : [],
   }
 }

@@ -1,55 +1,118 @@
 # Entify
 
-**Entify** is a modern data cleaning and entity resolution platform built with Next.js (frontend) and FastAPI (backend). It leverages **DuckDB‑WASM** and **Splink** for scalable, privacy‑preserving record linkage, and uses **Supabase** for storage and authentication.
-⚠️ Development is in progress; features and APIs may change.
----
+Entify is an in-progress entity resolution workspace built around a Next.js frontend and a FastAPI + Splink backend. The current focus is a reliable local workflow for dataset upload, project configuration, matching, and result review.
 
-## ✨ Features
-- Interactive data preview, cleaning, and quality dashboards.
-- Configurable blocking rules and comparison methods (exact, Jaro‑Winkler, Levenshtein, Jaccard, etc.).
-- Dynamic detection of unique ID columns and flexible blocking rule defaults.
-- Real‑time entity resolution with probability thresholds.
-- Export results to CSV.
+## Current Architecture
 
----
+- `frontend/`
+  Next.js 16 app with Clerk auth, Supabase persistence, DuckDB-WASM for browser-side data work, and the main multi-phase ER workspace.
+- `backend/`
+  FastAPI service for profiling, Splink-based entity resolution, semantic blocking suggestions, and result/visualization endpoints.
+- `frontend/supabase_schema.sql`
+  Canonical bootstrap schema for fresh Supabase environments.
+- `frontend/supabase/migrations/`
+  Incremental schema history. Keep this aligned with the bootstrap schema.
 
-## 🚀 Getting Started
-### Prerequisites
-- **Node.js** (v20+) and **npm**
-- **Python** (3.12) with virtual environment
-- **Docker** (optional, for local Supabase) 
-- **Supabase** project with API keys
+## Tested Local Runtime
 
+- Node.js `20.x`
+- Python `3.14`
 
-## 📦 Backend API
-- **GET /api/resolve** – runs entity resolution on the uploaded CSV.
-- **POST /api/profile** – returns column statistics.
-- **Other endpoints** – project CRUD, dataset upload, etc.
+The repo includes `.nvmrc` and `.python-version` to make the local toolchain explicit.
 
-All endpoints expect JSON payloads defined in `backend/services/*.py`.
+## Local Setup
 
----
+### 1. Frontend
 
-## 🎨 Frontend Overview
-- Pages live under `frontend/app/` (e.g., `projects/[id]/page.tsx`).
-- Core components in `frontend/components/` handle blocking rule building, comparison configuration, and data cleaning studio.
-- Utility libraries in `frontend/lib/` provide Splink client wrappers and comparison method generators.
+```bash
+cd frontend
+npm ci
+```
 
----
+### 2. Backend
 
-## 🗄️ Database (Supabase)
-- Tables: `projects`, `datasets`, `cleaning_metadata`, etc.
-- Migrations are stored in `frontend/supabase/migrations/` and applied via Supabase CLI.
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r backend/requirements-dev.txt
+```
 
----
+### 3. Environment Variables
 
-## 🤝 Contributing
-1. Fork the repository.
-2. Create a feature branch.
-3. Ensure the app runs locally and all tests pass.
-4. Submit a pull request with a clear description.
+Frontend expects these values in `frontend/.env.local`:
 
----
+```bash
+NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=...
+CLERK_SECRET_KEY=...
+```
 
-## 📄 License
-This project is licensed under the **MIT License**.
+Backend can run without a dedicated env file for basic development, but these are useful:
+
+```bash
+ENTIFY_METADATA_DB=backend/entify.duckdb
+```
+
+## Running Locally
+
+### Start the backend
+
+```bash
+. .venv/bin/activate
+cd backend
+uvicorn api:app --reload --host 0.0.0.0 --port 8000
+```
+
+### Start the frontend
+
+```bash
+cd frontend
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+## Database Setup
+
+For a fresh Supabase project:
+
+1. Run `frontend/supabase_schema.sql` in the SQL editor.
+2. If your environment already has older tables, apply the migrations in `frontend/supabase/migrations/`.
+
+The frontend currently persists:
+
+- datasets and uploaded file metadata
+- project blocking rules
+- comparison configurations
+- global Splink settings
+- active workflow phase
+- primary key selection
+- cleaning metadata paths/state
+
+## Verification
+
+### Frontend
+
+```bash
+cd frontend
+npm run lint
+npm run build
+```
+
+### Backend
+
+```bash
+. .venv/bin/activate
+pytest backend/tests -q
+```
+
+## Feature Status
+
+- Stable enough for active development:
+  dataset upload, project persistence, blocking/comparison configuration, backend resolution flow, result exploration
+- Experimental:
+  semantic blocking suggestions, some chart/visualization endpoints, browser-side cleaning flows that depend on local DuckDB state
+- Legacy/not yet normalized:
+  older prototype components that still assume pre-`/api/*` backend routes

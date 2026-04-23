@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -8,6 +8,15 @@ import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Eye, EyeOff, RotateCcw } from 'lucide-react'
 import { useWasm } from '@/lib/wasm/WasmContext'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog'
 
 interface DataViewSelectorProps {
     datasetName: string
@@ -18,22 +27,19 @@ interface DataViewSelectorProps {
 export function DataViewSelector({ datasetName, onViewChange, currentView }: DataViewSelectorProps) {
     const { duckDB } = useWasm()
     const [cleanedExists, setCleanedExists] = useState(false)
+    const [resetDialogOpen, setResetDialogOpen] = useState(false)
+    const [resetNotice, setResetNotice] = useState<string | null>(null)
     const [stats, setStats] = useState<{
         rawRows: number
         cleanedRows: number
     } | null>(null)
 
-    useEffect(() => {
-        checkCleanedTable()
-    }, [datasetName, duckDB])
-
-    const checkCleanedTable = async () => {
+    const checkCleanedTable = useCallback(async () => {
         if (!duckDB) return
 
         try {
             const conn = await duckDB.connect()
 
-            // Check if cleaned table exists
             const tableCheck = await conn.query(`
                 SELECT count(*) as cnt FROM information_schema.tables 
                 WHERE table_name = '${datasetName}_cleaned'
@@ -42,7 +48,6 @@ export function DataViewSelector({ datasetName, onViewChange, currentView }: Dat
             setCleanedExists(exists)
 
             if (exists) {
-                // Get row counts for both tables
                 const rawCount = await conn.query(`SELECT COUNT(*) as count FROM "${datasetName}_raw"`)
                 const cleanedCount = await conn.query(`SELECT COUNT(*) as count FROM "${datasetName}_cleaned"`)
 
@@ -50,13 +55,19 @@ export function DataViewSelector({ datasetName, onViewChange, currentView }: Dat
                     rawRows: Number(rawCount.toArray()[0].count),
                     cleanedRows: Number(cleanedCount.toArray()[0].count)
                 })
+            } else {
+                setStats(null)
             }
 
             await conn.close()
         } catch (error) {
             console.error('Error checking cleaned table:', error)
         }
-    }
+    }, [datasetName, duckDB])
+
+    useEffect(() => {
+        checkCleanedTable()
+    }, [checkCleanedTable])
 
     if (!cleanedExists) {
         return (
@@ -79,6 +90,12 @@ export function DataViewSelector({ datasetName, onViewChange, currentView }: Dat
                 </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+                {resetNotice && (
+                    <Alert>
+                        <AlertDescription>{resetNotice}</AlertDescription>
+                    </Alert>
+                )}
+
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                         <Switch
@@ -129,16 +146,36 @@ export function DataViewSelector({ datasetName, onViewChange, currentView }: Dat
                     variant="outline"
                     size="sm"
                     className="w-full"
-                    onClick={() => {
-                        if (confirm('Reset to raw data? This will delete the cleaned version.')) {
-                            // TODO: Implement reset functionality
-                            alert('Reset functionality coming soon')
-                        }
-                    }}
+                    onClick={() => setResetDialogOpen(true)}
                 >
                     <RotateCcw className="h-4 w-4 mr-2" />
                     Reset to Raw Data
                 </Button>
+
+                <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Reset cleaned data</DialogTitle>
+                            <DialogDescription>
+                                This switches the workspace back to the raw view. Deleting the cleaned table is still pending implementation.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <DialogFooter>
+                            <Button variant="outline" onClick={() => setResetDialogOpen(false)}>
+                                Cancel
+                            </Button>
+                            <Button
+                                onClick={() => {
+                                    onViewChange('raw')
+                                    setResetNotice('Switched back to the raw data view. Cleaned-table deletion is not wired up yet.')
+                                    setResetDialogOpen(false)
+                                }}
+                            >
+                                Switch to Raw View
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
             </CardContent>
         </Card>
     )

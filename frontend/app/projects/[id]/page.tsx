@@ -1,13 +1,12 @@
 "use client"
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useWasm } from '@/lib/wasm/WasmContext'
 import { useDatasetStore } from '@/lib/store/useDatasetStore'
 import { createClient } from '@/utils/supabase/client'
 import { Panel, PanelContent, PanelHeader, PanelTitle } from "@/components/ui/panel"
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { motion, AnimatePresence } from "framer-motion"
 import {
@@ -22,7 +21,6 @@ import {
     Database,
     ChevronRight,
     Play,
-    Save,
     MoreVertical,
     Trash2,
     Edit2,
@@ -40,8 +38,6 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { DataTable } from "@/components/DataTable"
-import { ColumnDef } from "@tanstack/react-table"
 import { BlockingRuleBuilder } from "@/components/BlockingRuleBuilder"
 import { ComparisonBuilder } from "@/components/ComparisonBuilder"
 import { TrainingPanel } from "@/components/TrainingPanel"
@@ -65,9 +61,15 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog"
-import { buildApiUrl, fetchApiText } from "@/lib/api/client"
+import { fetchApiText } from "@/lib/api/client"
+import type { ComparisonConfig } from "@/lib/comparison/comparisonMethods"
 import { loadProjectBundle, saveDatasetPrimaryKey } from "@/lib/projects/persistence"
 import { useProjectAutosave } from "@/lib/projects/useProjectAutosave"
+import {
+    getWorkspaceColumns,
+    loadDatasetIntoDuckDb,
+    runProjectResolution,
+} from "@/lib/projects/workspaceExecution"
 
 
 const PHASES = [
@@ -97,10 +99,10 @@ export default function ProjectPage() {
 
     // Project State (persisted to database)
     const [blockingRules, setBlockingRules] = useState<string[]>([])
-    const [comparisons, setComparisons] = useState<any[]>([])
+    const [comparisons, setComparisons] = useState<ComparisonConfig[]>([])
     const [threshold, setThreshold] = useState(0.5)
     const [modelTrained, setModelTrained] = useState(false)
-    const [results, setResults] = useState<any[]>([])
+    const [results, setResults] = useState<Array<Record<string, unknown>>>([])
     const [isProcessing, setIsProcessing] = useState(false)
     const [dataColumns, setDataColumns] = useState<string[]>([])
     const [primaryKey, setPrimaryKey] = useState<string | null>(activeDataset?.primary_key_column || null)
@@ -113,6 +115,10 @@ export default function ProjectPage() {
     const [renameDialogOpen, setRenameDialogOpen] = useState(false)
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
     const [renameValue, setRenameValue] = useState("")
+
+    const getErrorMessage = useCallback((error: unknown) => {
+        return error instanceof Error ? error.message : 'Unknown error'
+    }, [])
 
     // Helper to update phase status
     const updatePhaseStatus = (phase: PhaseId, updates: Partial<PhaseInfo>) => {
@@ -254,50 +260,7 @@ export default function ProjectPage() {
         }
     }
 
-    useEffect(() => {
-        if (params.id) {
-            loadProject(params.id as string)
-        }
-    }, [params.id])
-
-    // Load primary key from database or localStorage
-    useEffect(() => {
-        if (activeDataset?.id) {
-            // Try database first
-            if (activeDataset.primary_key_column) {
-                setPrimaryKey(activeDataset.primary_key_column)
-                setIsPrimaryKeyConfirmed(true)
-                console.log('✅ Loaded primary key from database:', activeDataset.primary_key_column)
-            } else {
-                // Fallback to localStorage
-                const storageKey = `primary_key_${activeDataset.id}`
-                const storedKey = localStorage.getItem(storageKey)
-                if (storedKey) {
-                    setPrimaryKey(storedKey)
-                    setIsPrimaryKeyConfirmed(true)
-                    console.log('✅ Loaded primary key from localStorage:', storedKey)
-                }
-            }
-        }
-    }, [activeDataset?.id, activeDataset?.primary_key_column])
-
-    // Reload data when DuckDB becomes ready
-    useEffect(() => {
-        if (duckDB && isReady && activeDataset) {
-            // Prefer cleaned file if available, otherwise use original
-            const filePath = activeDataset.cleaned_file_path || activeDataset.file_path
-
-            if (filePath) {
-                const dataset = {
-                    name: activeDataset.name,
-                    file_path: filePath
-                }
-                loadDataIntoDuckDB(dataset)
-            }
-        }
-    }, [duckDB, isReady, activeDataset?.file_path, activeDataset?.cleaned_file_path])
-
-    const loadProject = async (id: string) => {
+    const loadProject = useCallback(async (id: string) => {
         try {
             console.log('Loading project:', id)
             setPageError(null)
@@ -322,177 +285,94 @@ export default function ProjectPage() {
                 setPageError('This dataset is missing its file path. Please re-upload it from the Data Vault.')
             }
             setLoading(false)
-        } catch (error: any) {
+        } catch (error) {
             console.error("Error loading project:", error)
-            setPageError(`Failed to load project: ${error.message || 'Unknown error'}`)
+            setPageError(`Failed to load project: ${getErrorMessage(error)}`)
             router.push('/vault')
             setLoading(false)
         }
-    }
+    }, [getErrorMessage, router, setActiveDataset, setActiveProject, supabase])
 
     const [isDataLoaded, setIsDataLoaded] = useState(false)
 
-    const loadDataIntoDuckDB = async (dataset: any) => {
+    const loadDataIntoDuckDB = useCallback(async (dataset: { name: string; file_path?: string }) => {
+        if (!duckDB) {
+            return
+        }
+
         try {
             console.log('Loading dataset into DuckDB:', dataset.name)
+            const loadResult = await loadDatasetIntoDuckDb({
+                activeProjectId: activeProject?.id,
+                dataset,
+                duckDB,
+                getErrorMessage,
+                supabase,
+            })
 
-            // Check if data is already loaded
-            const conn = await duckDB!.connect()
-            const tableCheck = await conn.query(`
-                SELECT count(*) as cnt FROM information_schema.tables 
-                WHERE table_name = '${dataset.name}'
-    `)
-
-            const tableExists = Number(tableCheck.toArray()[0]['cnt']) > 0
-
-            if (tableExists) {
-                console.log('✅ Data already loaded in DuckDB')
-
-                // Normalize table name
-                const tableName = dataset.name.replace(/[^a-zA-Z0-9_]/g, '_')
-
-                // Check if cleaned table exists
-                const cleanedCheck = await conn.query(`
-                    SELECT count(*) as cnt FROM information_schema.tables 
-                    WHERE table_name = '${tableName}_cleaned'
-                `)
-                const cleanedExists = Number(cleanedCheck.toArray()[0]['cnt']) > 0
-                const tableToQuery = cleanedExists ? `${tableName}_cleaned` : tableName
-                console.log(`Using ${tableToQuery} for preview data`)
-
-                // Fetch preview data to populate frontend state
-                const preview = await conn.query(`SELECT * FROM "${tableToQuery}" LIMIT 5`)
-                const previewRows = preview.toArray().map((r: any) => {
-                    const obj = r.toJSON()
-                    // Convert BigInt to Number
-                    Object.keys(obj).forEach(key => {
-                        if (typeof obj[key] === 'bigint') {
-                            obj[key] = Number(obj[key])
-                        }
-                    })
-                    return obj
-                })
-
-                setPreviewData(previewRows)
-                if (previewRows.length > 0) {
-                    setDataColumns(Object.keys(previewRows[0]))
-                }
-
-                await conn.close()
-                setIsDataLoaded(true)
-                return
-            }
-
-            // Data needs to be loaded
-            console.log('Loading dataset into DuckDB:', dataset.name)
-
-            // Check if file_path exists
-            if (!dataset.file_path) {
-                console.warn('Dataset has no file_path - this is a legacy dataset')
-                setLoading(false)
-                return
-            }
-
-            // Download file from Supabase Storage
-            const { data: fileData, error: downloadError } = await supabase.storage
-                .from('datasets')
-                .download(dataset.file_path)
-
-            if (downloadError || !fileData) {
-                console.error('Failed to download file:', downloadError)
-                setPageError(
-                    `Failed to load dataset: ${downloadError?.message || 'File not found in storage'}. ` +
-                    'Please re-upload it from the Data Vault.'
-                )
-                router.push('/vault')
-                return
-            }
-
-            console.log('File downloaded, size:', fileData.size)
-
-            // Register file with DuckDB
-            const fileName = `${dataset.name}.csv`
-            if (duckDB) {
-                await duckDB.registerFileHandle(fileName, fileData, 2, true)
-            }
-
-            // Normalize table name (replace special chars with underscores)
-            const tableName = dataset.name.replace(/[^a-zA-Z0-9_]/g, '_')
-
-            console.log(`📊 Loading data into table: ${tableName}`)
-
-            // Drop existing tables to avoid conflicts - use both original and normalized names
-            const tableVariants = [
-                dataset.name,
-                tableName,
-                `${dataset.name}_raw`,
-                `${tableName}_raw`,
-                `${dataset.name}_cleaned`,
-                `${tableName}_cleaned`
-            ]
-
-            for (const variant of tableVariants) {
-                try {
-                    await conn.query(`DROP TABLE IF EXISTS "${variant}"`)
-                } catch (e) {
-                    // Ignore errors - table might not exist
-                }
-            }
-
-            // Create main table
-            try {
-                await conn.query(`CREATE TABLE "${tableName}" AS SELECT * FROM read_csv_auto('${fileName}')`)
-                console.log(`✅ Created table: ${tableName}`)
-            } catch (createError: any) {
-                // If table still exists, just use it
-                if (createError.message?.includes('already exists')) {
-                    console.log(`ℹ️ Table ${tableName} already exists, using existing table`)
-                } else {
-                    throw createError
-                }
-            }
-
-            // Create original data backup (immutable)
-            try {
-                await conn.query(`CREATE TABLE "${tableName}_original" AS SELECT * FROM "${tableName}"`)
-                console.log(`✅ Created original data table: ${tableName}_original`)
-            } catch (backupError: any) {
-                if (backupError.message?.includes('already exists')) {
-                    console.log(`ℹ️ Original table ${tableName}_original already exists`)
-                } else {
-                    console.warn('Could not create original table:', backupError.message)
-                }
-            }
-
-            // Save original file path to database
-            if (activeProject?.id) {
-                const { error } = await supabase
-                    .from('projects')
-                    .update({
-                        original_file_path: fileName,
-                        last_updated: new Date().toISOString()
-                    })
-                    .eq('id', activeProject.id)
-
-                if (error) {
-                    console.error('Failed to save original file path:', error)
-                }
-            }
-
-            console.log('✅ Data loaded into DuckDB successfully')
-
-            await conn.close()
-            setIsDataLoaded(true)
-        } catch (error: any) {
+            setPreviewData(loadResult.previewData)
+            setDataColumns(loadResult.dataColumns)
+            setIsDataLoaded(loadResult.isDataLoaded)
+        } catch (error) {
             console.error('Failed to load data into DuckDB:', error)
-            setPageError(`Failed to load data: ${error.message}`)
+            const message = getErrorMessage(error)
+            setPageError(
+                message.includes('File not found')
+                    ? `Failed to load dataset: ${message}. Please re-upload it from the Data Vault.`
+                    : `Failed to load data: ${message}`
+            )
             setIsDataLoaded(false)
+            if (message.includes('File not found')) {
+                router.push('/vault')
+            }
         } finally {
             setLoading(false)
         }
-    }
+    }, [activeProject?.id, duckDB, getErrorMessage, router, supabase])
 
-    const [previewData, setPreviewData] = useState<any[]>([])
+    const [previewData, setPreviewData] = useState<Array<Record<string, unknown>>>([])
+
+    useEffect(() => {
+        if (params.id) {
+            loadProject(params.id as string)
+        }
+    }, [loadProject, params.id])
+
+    useEffect(() => {
+        if (activeDataset?.id) {
+            if (activeDataset.primary_key_column) {
+                setPrimaryKey(activeDataset.primary_key_column)
+                setIsPrimaryKeyConfirmed(true)
+                console.log('✅ Loaded primary key from database:', activeDataset.primary_key_column)
+            } else {
+                const storageKey = `primary_key_${activeDataset.id}`
+                const storedKey = localStorage.getItem(storageKey)
+                if (storedKey) {
+                    setPrimaryKey(storedKey)
+                    setIsPrimaryKeyConfirmed(true)
+                    console.log('✅ Loaded primary key from localStorage:', storedKey)
+                }
+            }
+        }
+    }, [activeDataset?.id, activeDataset?.primary_key_column])
+
+    useEffect(() => {
+        if (duckDB && isReady && activeDataset) {
+            const filePath = activeDataset.cleaned_file_path || activeDataset.file_path
+
+            if (filePath) {
+                loadDataIntoDuckDB({
+                    name: activeDataset.name,
+                    file_path: filePath
+                })
+            }
+        }
+    }, [activeDataset, duckDB, isReady, loadDataIntoDuckDB])
+
+    const workspaceColumns = useMemo(
+        () => getWorkspaceColumns(dataColumns, activeDataset?.columns, previewData),
+        [activeDataset?.columns, dataColumns, previewData]
+    )
 
     const handleRunMatch = async () => {
         if (!activeDataset || !duckDB) {
@@ -502,134 +382,15 @@ export default function ProjectPage() {
 
         setIsProcessing(true)
         try {
-            // Export data from DuckDB to CSV
-            const conn = await duckDB.connect()
-
-            // Normalize table name
-            const tableName = activeDataset.name.replace(/[^a-zA-Z0-9_]/g, '_')
-
-            // Check if cleaned table exists, use it if available
-            let tableToUse = tableName
-            try {
-                const cleanedTableCheck = await conn.query(`
-                    SELECT count(*) as cnt FROM information_schema.tables 
-                    WHERE table_name = '${tableName}_cleaned'
-                `)
-                const cleanedExists = Number(cleanedTableCheck.toArray()[0]['cnt']) > 0
-                if (cleanedExists) {
-                    tableToUse = `${tableName}_cleaned`
-                    console.log(`✓ Using cleaned data from ${tableToUse}`)
-                }
-            } catch (e) {
-                // Cleaned table doesn't exist, use raw data
-                console.log(`Using raw data from ${tableName}`)
-            }
-
-            const result = await conn.query(`SELECT * FROM "${tableToUse}"`)
-
-            // Convert BigInt to Number for JSON serialization
-            const rows = result.toArray().map((r: any) => {
-                const obj = r.toJSON()
-                // Convert all BigInt values to Numbers
-                Object.keys(obj).forEach(key => {
-                    if (typeof obj[key] === 'bigint') {
-                        obj[key] = Number(obj[key])
-                    }
-                })
-                return obj
-            })
-            await conn.close()
-
-            // Convert to CSV
-            if (rows.length === 0) {
-                throw new Error("No data to process")
-            }
-
-            const headers = Object.keys(rows[0])
-            const csvRows = [
-                headers.join(','),
-                ...rows.map(row => headers.map(h => JSON.stringify(row[h] ?? '')).join(','))
-            ]
-            const csvData = csvRows.join('\n')
-
-            // Transform comparisons to Splink format
-            const { generateSplinkComparison } = await import('@/lib/comparison/comparisonMethods')
-            const splinkComparisons = comparisons.length > 0
-                ? comparisons.map(comp => generateSplinkComparison(comp))
-                : []
-
-            // Detect unique ID column
-            const possibleIdColumns = ['id', '_id', 'unique_id', 'pk', 'key']
-            let uniqueIdCol = headers.find(h => possibleIdColumns.includes(h.toLowerCase()))
-
-            if (!uniqueIdCol) {
-                // Try finding column ending with id
-                uniqueIdCol = headers.find(h => h.toLowerCase().endsWith('id'))
-            }
-
-            if (!uniqueIdCol) {
-                // Default to first column
-                uniqueIdCol = headers[0]
-            }
-
-            console.log(`🔑 Detected unique ID column: ${uniqueIdCol}`)
-
-            // Build Splink settings
-            const settings = {
-                link_type: "dedupe_only",
-                unique_id_column_name: uniqueIdCol,
-                probability_two_random_records_match: globalSettings.probability_two_random_records_match,
-                blocking_rules_to_generate_predictions: blockingRules.length > 0
-                    ? blockingRules
-                    : [], // Empty list implies full comparison (or let Splink handle it)
-                comparisons: splinkComparisons
-            }
-
-            console.log('\n════════════════════════════════════════════════════════════')
-            console.log('🚀 FRONTEND: Sending to Backend API')
-            console.log('════════════════════════════════════════════════════════════')
-            console.log(`📊 Dataset: ${tableToUse}`)
-            console.log(`📏 Rows: ${rows.length}`)
-            console.log(`🔑 Unique ID: ${uniqueIdCol}`)
-
-            console.log(`\n🔒 Blocking Rules (${blockingRules.length}):`)
-            if (blockingRules.length > 0) {
-                blockingRules.forEach((rule, i) => {
-                    console.log(`  ${i + 1}. ${rule}`)
-                })
-            } else {
-                console.log('  (None - Full N×N comparison)')
-            }
-
-            console.log(`\n📊 Comparisons (${comparisons.length}):`)
-            comparisons.forEach((comp, i) => {
-                console.log(`  ${i + 1}. Column: ${comp.column}`)
-                console.log(`     Method: ${comp.method}`)
-                console.log(`     Weight: ${comp.weight}`)
-                if (comp.threshold !== undefined) {
-                    console.log(`     Threshold: ${comp.threshold}`)
-                }
-            })
-
-            console.log(`\n✨ Generated Splink Comparisons (${splinkComparisons.length}):`)
-            splinkComparisons.forEach((comp, i) => {
-                const levels = comp.comparison_levels?.length || 0
-                console.log(`  ${i + 1}. ${comp.output_column_name} (${levels} levels)`)
-            })
-
-            console.log('\n📦 Full Settings Object:')
-            console.log(JSON.stringify(settings, null, 2))
-            console.log('════════════════════════════════════════════════════════════\n')
-
-            // Run entity resolution with primary key
-            const { runEntityResolution } = await import('@/lib/api/splinkClient')
-            const response = await runEntityResolution(
-                csvData,
-                settings,
-                0.5,
-                primaryKey || undefined,  // Pass the user-selected primary key
+            const response = await runProjectResolution({
+                activeDataset,
+                blockingRules,
+                comparisons,
+                duckDB,
+                globalSettings,
+                primaryKey: primaryKey || undefined,
                 semanticBlocking
-            )
+            })
 
             if (response.status === 'success') {
                 setResults(response.matches)
@@ -646,13 +407,6 @@ export default function ProjectPage() {
             setIsProcessing(false)
         }
     }
-
-    const columns: ColumnDef<any>[] = results.length > 0
-        ? Object.keys(results[0]).map(key => ({
-            accessorKey: key,
-            header: key,
-        }))
-        : []
 
     if (loading) {
         return (
@@ -765,9 +519,6 @@ export default function ProjectPage() {
                     </div>
 
                     <div className="flex items-center gap-2">
-                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                            <Save className="w-4 h-4" />
-                        </Button>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                                 <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
@@ -920,15 +671,7 @@ export default function ProjectPage() {
                                         </PanelHeader>
                                         <PanelContent className="space-y-6">
                                             <SmartBlockingPanel
-                                                columns={
-                                                    dataColumns.length > 0
-                                                        ? dataColumns
-                                                        : (activeDataset?.columns && activeDataset.columns.length > 0)
-                                                            ? activeDataset.columns.map(c => typeof c === 'string' ? c : c.column)
-                                                            : (previewData && previewData.length > 0)
-                                                                ? Object.keys(previewData[0])
-                                                                : []
-                                                }
+                                                columns={workspaceColumns}
                                                 duckDB={duckDB}
                                                 tableName={activeDataset?.table_name || activeDataset?.name?.replace(/[^a-zA-Z0-9_]/g, '_')}
                                                 onApplySuggestion={(suggestion: SemanticSuggestion) => {
@@ -950,16 +693,7 @@ export default function ProjectPage() {
                                                 }}
                                             />
                                             <BlockingRuleBuilder
-                                                columns={
-                                                    // Try multiple sources for columns, prioritizing live data
-                                                    dataColumns.length > 0
-                                                        ? dataColumns
-                                                        : (activeDataset?.columns && activeDataset.columns.length > 0)
-                                                            ? activeDataset.columns.map(c => typeof c === 'string' ? c : c.column)
-                                                            : (previewData && previewData.length > 0)
-                                                                ? Object.keys(previewData[0])
-                                                                : []
-                                                }
+                                                columns={workspaceColumns}
                                                 onRulesChange={setBlockingRules}
                                                 initialRules={blockingRules}
                                                 previewData={previewData}
@@ -998,16 +732,7 @@ export default function ProjectPage() {
                                         </PanelHeader>
                                         <PanelContent className="space-y-6">
                                             <ComparisonBuilder
-                                                columns={
-                                                    // Use dataColumns which is populated from preview data
-                                                    dataColumns.length > 0
-                                                        ? dataColumns
-                                                        : (activeDataset?.columns && activeDataset.columns.length > 0)
-                                                            ? activeDataset.columns.map(c => typeof c === 'string' ? c : c.column)
-                                                            : (previewData && previewData.length > 0)
-                                                                ? Object.keys(previewData[0])
-                                                                : []
-                                                }
+                                                columns={workspaceColumns}
                                                 onComparisonsChange={setComparisons}
                                                 initialComparisons={comparisons}
                                                 previewData={previewData}
