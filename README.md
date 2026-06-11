@@ -36,7 +36,7 @@ Entify is useful for:
 
 Entify is an active, working application moving from prototype toward an adoptable open-source product.
 
-The honest status: this is worth building, but it is early. Keep expectations practical. The repo is best understood as a promising developer preview, not a production-ready MDM platform.
+The honest status: this is early. Keep expectations practical. The repo is just a developer preview, not a production-ready MDM platform.
 
 Working today:
 
@@ -55,11 +55,6 @@ Not ready yet:
 - Full warning cleanup across older frontend components.
 - End-to-end test coverage for the complete upload-to-results path.
 
-Public repo stance:
-
-- Public is good for learning in the open, portfolio signal, early collaborators, and open-source discovery.
-- Private would only make sense temporarily if you want to polish the demo path, clean repo history, or rework branding before inviting attention.
-- The product should be described as early and experimental until the demo path and deployment story are excellent.
 
 ## Architecture
 
@@ -194,48 +189,7 @@ Backend:
 pytest backend/tests -q
 ```
 
-## Roadmap: What Makes Entify Real and Adoptable
 
-The next work is not about adding more advanced matching features. It is about trust, setup speed, and proof. A new user should be able to understand the product, run it, and see a successful match workflow in minutes.
-
-1. Ship a demo path.
-   Add a small sample dataset, a seeded project, and a guided "first match" flow that works without guessing.
-
-2. Add deployment documentation.
-   Provide one deployment path for the frontend, backend, Supabase, Clerk, storage, and environment variables.
-
-3. Harden the core workflow.
-   Add end-to-end tests for upload, project load, blocking, comparisons, backend resolution, and cluster review.
-
-4. Improve data scale strategy.
-   Document practical limits for browser DuckDB, backend Splink execution, file size, row count, and memory.
-
-5. Make results exportable.
-   Add CSV/Parquet export for clusters, match pairs, model settings, and audit reports.
-
-6. Build collaboration features.
-   Add project ownership, team access, saved decisions, review notes, and reproducible run history.
-
-7. Clean the warning backlog.
-   Replace legacy `any` types, remove unused imports, and tighten hook dependencies so new contributors see a clean codebase.
-
-## Public Positioning
-
-Use this language when sharing the project:
-
-```text
-Entify is an early open-source workspace for entity resolution, record linkage, and data deduplication. It helps teams profile messy datasets, configure Splink-powered matching workflows, and review explainable match clusters.
-```
-
-Short version:
-
-```text
-Open-source entity resolution workspace for deduplicating messy data with Splink, DuckDB, FastAPI, and Next.js.
-```
-
-## SEO Summary
-
-Entify is an open-source entity resolution and record linkage application for deduplicating messy datasets, configuring Splink matching workflows, reviewing clusters, and building explainable data matching pipelines with Next.js, FastAPI, DuckDB, Supabase, and Splink.
 
 ## Keywords
 
