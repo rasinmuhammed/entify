@@ -1,0 +1,44 @@
+# Entify
+
+Entify is an open-source entity resolution and record linkage workspace for deduplicating messy datasets and reviewing explainable match clusters.
+
+## Summary
+
+Entify helps users upload tabular data, profile and clean records, configure blocking rules, define field comparison logic, run Splink-powered entity resolution, and inspect duplicate-record clusters. It combines a Next.js frontend, a FastAPI backend, DuckDB, Supabase, Clerk authentication, and Splink.
+
+## Primary Use Cases
+
+- Entity resolution
+- Record linkage
+- Data deduplication
+- Customer 360 matching
+- Master data management preparation
+- Data quality investigation
+- Identity resolution
+- Fuzzy matching workflow design
+- Explainable duplicate detection
+
+## Architecture
+
+- Frontend: Next.js 16, React 19, TypeScript, DuckDB-WASM, Supabase, Clerk
+- Backend: FastAPI, Splink 4, DuckDB, pandas, sentence-transformers
+- Persistence: Supabase schema in `frontend/supabase_schema.sql`
+
+## Important Files
+
+- `README.md`: Main project overview, setup, roadmap, and SEO summary.
+- `frontend/README.md`: Frontend architecture and contributor guide.
+- `backend/README.md`: Backend API, runtime, and testing guide.
+- `frontend/app/projects/[id]/page.tsx`: Main entity resolution workspace route.
+- `frontend/lib/projects/workspaceExecution.ts`: DuckDB loading and backend resolution orchestration.
+- `backend/api.py`: FastAPI route definitions.
+- `backend/services/splink_service.py`: Splink entity resolution service layer.
+- `backend/services/semantic_blocking_service.py`: Semantic blocking suggestion service.
+
+## Public Description
+
+Entify is an open-source entity resolution application for finding duplicate and linked records in messy datasets. It provides a guided UI for profiling data, building blocking rules, configuring fuzzy comparisons, running Splink matching jobs, and reviewing explainable clusters.
+
+## Tags
+
+entity-resolution, record-linkage, data-deduplication, fuzzy-matching, data-quality, splink, duckdb, fastapi, nextjs, supabase, semantic-blocking, master-data-management, customer-360, identity-resolution, duplicate-detection

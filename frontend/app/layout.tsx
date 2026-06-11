@@ -5,8 +5,20 @@ import { ClerkProvider, SignedIn, SignedOut, RedirectToSignIn } from "@clerk/nex
 import { TopNav } from "@/components/TopNav";
 
 export const metadata: Metadata = {
-  title: "Entify",
-  description: "The Unified Truth Platform",
+  title: "Entify | Entity Resolution Workspace",
+  description: "Open-source entity resolution workspace for deduplicating messy datasets, configuring Splink matching workflows, and reviewing explainable record clusters.",
+  keywords: [
+    "entity resolution",
+    "record linkage",
+    "data deduplication",
+    "fuzzy matching",
+    "Splink",
+    "DuckDB",
+    "data quality",
+    "semantic blocking",
+    "customer 360",
+    "master data management",
+  ],
 };
 
 export default function RootLayout({
