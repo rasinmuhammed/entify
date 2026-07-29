@@ -7,18 +7,18 @@ for path in (ROOT, BACKEND_ROOT):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from backend.services.splink_service import SplinkService, _convert_to_splink_comparison  # noqa: E402
+from backend.services.splink_service import SplinkService, build_comparison  # noqa: E402
 from splink.comparison_library import ExactMatch, JaroWinklerAtThresholds  # noqa: E402
 
 
-def test_convert_to_splink_comparison_uses_current_library_objects():
-    exact = _convert_to_splink_comparison(
+def test_build_comparison_uses_current_library_objects():
+    exact = build_comparison(
         {
             "output_column_name": "name",
             "comparison_library_name": "exact_match",
         }
     )
-    fuzzy = _convert_to_splink_comparison(
+    fuzzy = build_comparison(
         {
             "output_column_name": "name",
             "comparison_library_name": "jaro_winkler_at_thresholds",
@@ -36,7 +36,13 @@ def test_process_entity_resolution_runs_with_current_splink_runtime():
         "link_type": "dedupe_only",
         "unique_id_column_name": "id",
         "blocking_rules_to_generate_predictions": ["l.city = r.city"],
-        "comparisons": [{"output_column_name": "name", "comparison_library_name": "exact_match"}],
+        "comparisons": [
+            {"output_column_name": "name", "comparison_library_name": "exact_match"},
+            # A second comparison on a column that is not blocked on. With only
+            # the blocked column compared, there is no evidence left to score
+            # and Splink emits invalid SQL.
+            {"output_column_name": "city", "comparison_library_name": "exact_match"},
+        ],
     }
 
     service = SplinkService()
@@ -47,5 +53,7 @@ def test_process_entity_resolution_runs_with_current_splink_runtime():
         primary_key_column="id",
     )
 
-    assert result["status"] == "success"
+    assert result["status"] == "success", result.get("error")
     assert "execution_time_ms" in result
+    # Three rows cannot train a model; that must be surfaced, not hidden.
+    assert result["training"]["rows"] == 3

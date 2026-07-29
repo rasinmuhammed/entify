@@ -7,7 +7,7 @@ import { GlassCard } from "@/components/ui/glass-card"
 import axios from "axios"
 import { cn } from "@/lib/utils"
 import { createClient } from "@/utils/supabase/client"
-import { useUser } from "@clerk/nextjs"
+import { useAppUser } from "@/lib/auth"
 import { useRouter } from "next/navigation"
 import { useDatasetStore } from "@/lib/store/useDatasetStore"
 import { useWasm } from "@/lib/wasm/WasmContext"
@@ -18,7 +18,7 @@ interface UploadProps {
 }
 
 export function Upload({ onUploadComplete, onDatasetUploaded }: UploadProps = {}) {
-  const { user } = useUser()
+  const user = useAppUser()
   const router = useRouter()
   const { setActiveDataset } = useDatasetStore()
   const { duckDB, isReady } = useWasm()
