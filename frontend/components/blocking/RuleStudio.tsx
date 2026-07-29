@@ -80,7 +80,7 @@ export default function RuleStudio() {
         <div className="max-w-5xl mx-auto p-8 space-y-8">
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold gradient-text">Rule Studio</h1>
+                    <h1 className="text-3xl font-semibold tracking-tight">Rule Studio</h1>
                     <p className="text-muted-foreground mt-1">
                         Design your entity resolution strategy using natural language.
                     </p>

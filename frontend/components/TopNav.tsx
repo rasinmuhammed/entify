@@ -29,6 +29,7 @@ import {
 import { ChevronDown, Plus, FolderOpen, User, Settings, LogOut, Check, Moon, Sun } from 'lucide-react'
 import { useDatasetStore } from '@/lib/store/useDatasetStore'
 import { supabase } from '@/lib/supabase'
+import { Logo } from '@/components/brand/Logo'
 
 interface TopNavProps {
     userName?: string
@@ -78,16 +79,9 @@ export function TopNav({ userName = "User", userEmail = "user@example.com" }: To
         <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
             <div className="flex h-14 items-center px-6">
                 {/* Logo */}
-                <Link href="/" className="flex items-center gap-2 mr-6">
-                    <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo-500 via-purple-500 to-purple-600 p-1.5 shadow-md">
-                        {/* Modern geometric logo - connected nodes */}
-                        <svg viewBox="0 0 24 24" fill="none" className="w-full h-full text-white">
-                            <circle cx="7" cy="17" r="3" stroke="currentColor" strokeWidth="2" />
-                            <circle cx="17" cy="7" r="3" stroke="currentColor" strokeWidth="2" />
-                            <path d="M9.5 14.5L14.5 9.5" stroke="currentColor" strokeWidth="2" />
-                        </svg>
-                    </div>
-                    <span className="font-semibold text-lg bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+                <Link href="/" className="mr-6 flex items-center gap-2.5 text-foreground">
+                    <Logo className="h-[22px] w-[22px]" />
+                    <span className="text-[17px] font-medium tracking-[-0.02em]">
                         Entify
                     </span>
                 </Link>
@@ -189,7 +183,7 @@ export function TopNav({ userName = "User", userEmail = "user@example.com" }: To
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="sm" className="gap-2">
-                                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-orange-400 to-pink-500 flex items-center justify-center text-white text-xs font-medium">
+                                <div className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-secondary text-xs font-medium text-secondary-foreground">
                                     {userName.charAt(0).toUpperCase()}
                                 </div>
                                 <span className="hidden md:inline-block">{userName}</span>

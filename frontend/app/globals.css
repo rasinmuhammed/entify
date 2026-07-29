@@ -59,64 +59,102 @@
 }
 
 :root {
+  /*
+   * Entify design tokens.
+   *
+   * Near-monochrome by design. Colour is reserved almost entirely for meaning
+   * -- emerald for a match, rose for a mismatch, amber for caution -- so that
+   * when something on screen is coloured, it is saying something. The previous
+   * palette spent violet and pink on decoration, which left no colour headroom
+   * for the states that actually matter in a matching tool.
+   *
+   * Primary actions are drawn as inverted contrast (ink on paper, paper on
+   * ink) rather than a brand hue. It reads as more considered and it never
+   * clashes with the semantic colours sitting next to it.
+   */
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+
+  /* Paper: warm off-white, not pure white, so large surfaces do not glare. */
+  --background: oklch(0.988 0.003 95);
+  --foreground: oklch(0.17 0.008 265);
+
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.17 0.008 265);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --popover-foreground: oklch(0.17 0.008 265);
+
+  --primary: oklch(0.19 0.008 265);
+  --primary-foreground: oklch(0.985 0.003 95);
+
+  --secondary: oklch(0.965 0.004 95);
+  --secondary-foreground: oklch(0.19 0.008 265);
+  --muted: oklch(0.963 0.004 95);
+  --muted-foreground: oklch(0.505 0.01 265);
+  --accent: oklch(0.955 0.005 95);
+  --accent-foreground: oklch(0.19 0.008 265);
+
+  --destructive: oklch(0.585 0.19 20);
+  --border: oklch(0.9 0.005 265);
+  --input: oklch(0.9 0.005 265);
+  --ring: oklch(0.45 0.02 265);
+
+  /* Data visualisation: a graded sequence, not six competing brand hues. */
+  --chart-1: oklch(0.55 0.12 200);
+  --chart-2: oklch(0.62 0.13 165);
+  --chart-3: oklch(0.68 0.12 95);
+  --chart-4: oklch(0.60 0.14 45);
+  --chart-5: oklch(0.48 0.10 265);
+
+  --sidebar: oklch(0.975 0.003 95);
+  --sidebar-foreground: oklch(0.17 0.008 265);
+  --sidebar-primary: oklch(0.19 0.008 265);
+  --sidebar-primary-foreground: oklch(0.985 0.003 95);
+  --sidebar-accent: oklch(0.955 0.005 95);
+  --sidebar-accent-foreground: oklch(0.19 0.008 265);
+  --sidebar-border: oklch(0.9 0.005 265);
+  --sidebar-ring: oklch(0.45 0.02 265);
 }
 
 .dark {
-  --background: oklch(0.05 0 0); /* Darker background for contrast */
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.1 0 0 / 0.5); /* Glass effect base */
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.1 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.6 0.2 270); /* Purple accent */
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.2 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.2 0 0);
-  --muted-foreground: oklch(0.7 0 0);
-  --accent: oklch(0.2 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.7 0.2 20);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 10%);
-  --ring: oklch(0.6 0.2 270);
-  --chart-1: oklch(0.6 0.2 270);
-  --chart-2: oklch(0.5 0.2 300);
-  --chart-3: oklch(0.4 0.2 240);
-  --chart-4: oklch(0.7 0.2 200);
-  --chart-5: oklch(0.8 0.2 180);
+  /* Ink: deep and slightly cool, never pure black -- pure black kills the
+     sense of depth that separates panels from the page. */
+  --background: oklch(0.145 0.008 265);
+  --foreground: oklch(0.965 0.004 95);
+
+  --card: oklch(0.185 0.009 265);
+  --card-foreground: oklch(0.965 0.004 95);
+  --popover: oklch(0.185 0.009 265);
+  --popover-foreground: oklch(0.965 0.004 95);
+
+  --primary: oklch(0.965 0.004 95);
+  --primary-foreground: oklch(0.17 0.008 265);
+
+  --secondary: oklch(0.235 0.009 265);
+  --secondary-foreground: oklch(0.965 0.004 95);
+  --muted: oklch(0.235 0.009 265);
+  --muted-foreground: oklch(0.665 0.012 265);
+  --accent: oklch(0.255 0.01 265);
+  --accent-foreground: oklch(0.965 0.004 95);
+
+  --destructive: oklch(0.65 0.18 20);
+  --border: oklch(0.99 0.004 95 / 11%);
+  --input: oklch(0.99 0.004 95 / 13%);
+  --ring: oklch(0.72 0.012 265);
+
+  --chart-1: oklch(0.68 0.12 200);
+  --chart-2: oklch(0.72 0.13 165);
+  --chart-3: oklch(0.78 0.12 95);
+  --chart-4: oklch(0.70 0.14 45);
+  --chart-5: oklch(0.62 0.11 265);
+
+  --sidebar: oklch(0.17 0.009 265);
+  --sidebar-foreground: oklch(0.965 0.004 95);
+  --sidebar-primary: oklch(0.965 0.004 95);
+  --sidebar-primary-foreground: oklch(0.17 0.008 265);
+  --sidebar-accent: oklch(0.255 0.01 265);
+  --sidebar-accent-foreground: oklch(0.965 0.004 95);
+  --sidebar-border: oklch(0.99 0.004 95 / 11%);
+  --sidebar-ring: oklch(0.72 0.012 265);
 }
 
 @layer base {
@@ -125,19 +163,16 @@
   }
   body {
     @apply bg-background text-foreground antialiased;
-    background-image: 
-      radial-gradient(at 0% 0%, oklch(0.2 0.1 260 / 0.3) 0px, transparent 50%),
-      radial-gradient(at 100% 0%, oklch(0.2 0.1 300 / 0.3) 0px, transparent 50%),
-      radial-gradient(at 100% 100%, oklch(0.2 0.1 200 / 0.3) 0px, transparent 50%),
-      radial-gradient(at 0% 100%, oklch(0.2 0.1 240 / 0.3) 0px, transparent 50%);
-    background-attachment: fixed;
+    /* No decorative background. The four-hue radial wash that used to live
+       here tinted every panel and made the interface feel like a template. */
+    font-feature-settings: "cv05" 1, "ss01" 1;
+  }
+  /* Numerals in tables and metrics must line up column to column. */
+  table, .tabular {
+    font-variant-numeric: tabular-nums;
   }
 }
 
-.glass-panel {
-  @apply bg-white/5 backdrop-blur-xl border border-white/10 shadow-xl;
-}
-
-.gradient-text {
-  @apply bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400;
+.panel {
+  @apply rounded-xl border border-border bg-card;
 }

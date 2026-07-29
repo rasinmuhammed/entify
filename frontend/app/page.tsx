@@ -45,32 +45,29 @@ export default function HomePage() {
   const router = useRouter()
 
   return (
-    <div className="relative overflow-hidden">
-      {/* Ambient wash — kept very low contrast so it reads as depth, not decoration */}
+    <div className="relative">
+      {/* Hairline grid — structure rather than colour. Almost subliminal, and
+          it does the job the four-hue radial wash used to do badly. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-[540px] opacity-60
-                   [background:radial-gradient(60%_100%_at_50%_0%,color-mix(in_oklab,var(--color-primary)_18%,transparent),transparent_70%)]"
+        className="pointer-events-none absolute inset-x-0 top-0 h-[600px] opacity-[0.35]
+                   [background-image:linear-gradient(to_right,var(--color-border)_1px,transparent_1px),linear-gradient(to_bottom,var(--color-border)_1px,transparent_1px)]
+                   [background-size:72px_72px]
+                   [mask-image:radial-gradient(70%_60%_at_50%_0%,black,transparent)]"
       />
 
       <section className="relative mx-auto max-w-5xl px-6 pb-24 pt-24 text-center sm:pt-32">
         <Reveal>
-          <div className="mb-8 inline-flex items-center gap-2 rounded-full border border-border/60 bg-card/40 px-3 py-1 text-xs font-medium text-muted-foreground backdrop-blur">
+          <div className="mb-8 inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
             <span className="relative flex h-1.5 w-1.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-50" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
             </span>
             Probabilistic record linkage, powered by Splink 4
           </div>
 
-          <h1 className="mx-auto max-w-3xl text-balance text-5xl font-semibold leading-[1.05] tracking-[-0.03em] sm:text-6xl md:text-7xl">
-            Your customer list has
-            <br />
-            <span className="bg-gradient-to-br from-foreground via-foreground to-foreground/45 bg-clip-text text-transparent">
-              more people in it than
-            </span>
-            <br />
-            you have customers.
+          <h1 className="mx-auto max-w-3xl text-balance text-5xl font-semibold leading-[1.04] tracking-[-0.035em] sm:text-6xl md:text-7xl">
+            Your customer list has more people in it than you have customers.
           </h1>
 
           <p className="mx-auto mt-7 max-w-xl text-pretty text-lg leading-relaxed text-muted-foreground">

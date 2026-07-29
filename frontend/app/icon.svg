@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <rect width="32" height="32" rx="7" fill="#16181d"/>
+  <defs>
+    <clipPath id="lens">
+      <circle cx="12.5" cy="16" r="6.5"/>
+    </clipPath>
+  </defs>
+  <circle cx="19.5" cy="16" r="6.5" fill="#f5f3ef" clip-path="url(#lens)"/>
+  <circle cx="12.5" cy="16" r="6.5" fill="none" stroke="#f5f3ef" stroke-width="2"/>
+  <circle cx="19.5" cy="16" r="6.5" fill="none" stroke="#f5f3ef" stroke-width="2"/>
+</svg>
