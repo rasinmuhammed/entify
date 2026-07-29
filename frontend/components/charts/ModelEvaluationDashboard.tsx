@@ -54,7 +54,7 @@ export function ModelEvaluationDashboard({
             {/* Guidance Card */}
             <Card className="border-dashed">
                 <CardHeader>
-                    <CardTitle className="text-base">📚 How to Use These Charts</CardTitle>
+                    <CardTitle className="text-base">How to Use These Charts</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3 text-sm">
                     <div>
@@ -71,7 +71,7 @@ export function ModelEvaluationDashboard({
                     </div>
                     <div className="pt-2 border-t">
                         <p className="text-xs text-muted-foreground italic">
-                            💡 Tip: Start with the recommended threshold, then adjust based on your specific precision/recall requirements.
+                             Tip: Start with the recommended threshold, then adjust based on your specific precision/recall requirements.
                         </p>
                     </div>
                 </CardContent>

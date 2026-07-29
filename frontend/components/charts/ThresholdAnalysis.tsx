@@ -135,7 +135,7 @@ export function ThresholdAnalysis({ currentThreshold = 0.5, onThresholdChange }:
                                         <td className="p-2 font-mono">
                                             {metrics.threshold.toFixed(2)}
                                             {isCurrent && <span className="ml-2 text-xs text-foreground">← Current</span>}
-                                            {isRecommended && <span className="ml-2 text-xs text-green-600">✓ Recommended</span>}
+                                            {isRecommended && <span className="ml-2 text-xs text-green-600">Recommended</span>}
                                         </td>
                                         <td className="p-2 text-right">{metrics.match_count.toLocaleString()}</td>
                                         <td className="p-2 text-right">{metrics.cluster_count.toLocaleString()}</td>
@@ -230,7 +230,7 @@ export function ThresholdAnalysis({ currentThreshold = 0.5, onThresholdChange }:
                     <div className="flex items-start gap-3">
                         <AlertCircle className="h-5 w-5 text-green-600 mt-0.5" />
                         <div className="text-sm">
-                            <p className="font-medium text-green-900 dark:text-green-100 mb-1">💡 Recommendation</p>
+                            <p className="font-medium text-green-900 dark:text-green-100 mb-1">Recommendation</p>
                             <p className="text-green-700 dark:text-green-300">
                                 Based on the analysis, a threshold of <strong>{recommendedThreshold.threshold.toFixed(2)}</strong> appears optimal,
                                 yielding {recommendedThreshold.cluster_count.toLocaleString()} clusters with an average size of {recommendedThreshold.avg_cluster_size.toFixed(2)}.

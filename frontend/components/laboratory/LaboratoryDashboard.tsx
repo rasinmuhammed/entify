@@ -69,7 +69,7 @@ export function LaboratoryDashboard({
                         <AlertCircle className="h-5 w-5 text-foreground mt-0.5" />
                         <div className="flex-1">
                             <p className="font-medium text-foreground dark:text-foreground mb-1">
-                                🧪 Optional Advanced Features
+                                 Optional Advanced Features
                             </p>
                             <p className="text-sm text-foreground dark:text-muted-foreground">
                                 This phase provides advanced Splink features for power users. You can skip directly to Results if you're satisfied with the default configuration, or explore these tools to fine-tune your model.

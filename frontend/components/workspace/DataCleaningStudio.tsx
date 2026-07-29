@@ -204,7 +204,7 @@ export function DataCleaningStudio({ columns, onRulesApplied }: DataCleaningStud
                 setCleaningResult(result)
                 setShowResults(true)
             } else {
-                alert(`❌ Cleaning failed: ${result.error}`)
+                alert(` Cleaning failed: ${result.error}`)
             }
         } catch (error) {
             console.error('Failed to apply rules:', error)

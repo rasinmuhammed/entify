@@ -57,12 +57,12 @@ export function RuleTemplateBrowser({ columns, onSelectTemplate }: RuleTemplateB
 
     const categoryIcon = (category: RuleCategory) => {
         switch (category) {
-            case 'exact': return '🎯'
-            case 'fuzzy': return '🔍'
-            case 'compound': return '🔗'
-            case 'geographic': return '🌍'
-            case 'temporal': return '📅'
-            case 'custom': return '⚙️'
+            case 'exact': return ''
+            case 'fuzzy': return ''
+            case 'compound': return ''
+            case 'geographic': return ''
+            case 'temporal': return ''
+            case 'custom': return ''
         }
     }
 
@@ -84,13 +84,13 @@ export function RuleTemplateBrowser({ columns, onSelectTemplate }: RuleTemplateB
             {/* Category Tabs */}
             <Tabs value={selectedCategory} onValueChange={(v) => setSelectedCategory(v as any)}>
                 <TabsList className="grid w-full grid-cols-7">
-                    <TabsTrigger value="suggested">✨ Suggested</TabsTrigger>
+                    <TabsTrigger value="suggested">Suggested</TabsTrigger>
                     <TabsTrigger value="all">All</TabsTrigger>
-                    <TabsTrigger value="exact">🎯 Exact</TabsTrigger>
-                    <TabsTrigger value="fuzzy">🔍 Fuzzy</TabsTrigger>
-                    <TabsTrigger value="compound">🔗 Compound</TabsTrigger>
-                    <TabsTrigger value="geographic">🌍 Geo</TabsTrigger>
-                    <TabsTrigger value="temporal">📅 Time</TabsTrigger>
+                    <TabsTrigger value="exact">Exact</TabsTrigger>
+                    <TabsTrigger value="fuzzy">Fuzzy</TabsTrigger>
+                    <TabsTrigger value="compound">Compound</TabsTrigger>
+                    <TabsTrigger value="geographic">Geo</TabsTrigger>
+                    <TabsTrigger value="temporal">Time</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value={selectedCategory} className="mt-4">

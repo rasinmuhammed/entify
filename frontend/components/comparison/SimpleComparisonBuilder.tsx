@@ -603,7 +603,7 @@ export function SimpleComparisonBuilder({
                         <CardContent className="py-4">
                             <div className="space-y-2">
                                 <p className="text-sm font-medium">
-                                    ✅ {enabledCount} {enabledCount === 1 ? 'field' : 'fields'} configured for comparison
+                                     {enabledCount} {enabledCount === 1 ? 'field': 'fields'} configured for comparison
                                 </p>
                                 {!advancedMode && (
                                     <p className="text-xs text-muted-foreground">

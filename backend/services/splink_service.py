@@ -289,7 +289,7 @@ class SplinkService:
             if not matches_list and len(predictions_df) > 0:
                 warnings.append(
                     f"{len(predictions_df)} pairs were scored but none reached the "
-                    f"{threshold:.2f} threshold. Try lowering it — the score "
+                    f"{threshold:.2f} threshold. Try lowering it, since the score "
                     f"distribution shows where the pairs actually fall."
                 )
 

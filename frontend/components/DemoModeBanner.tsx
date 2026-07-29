@@ -32,7 +32,7 @@ export default function DemoModeBanner() {
             is unreadable against a light background. */}
         <p className="flex-1 text-amber-900 dark:text-amber-200/90">
           <span className="font-medium text-amber-950 dark:text-amber-100">Demo mode.</span>{" "}
-          No account needed — projects are saved in this browser only. Add Clerk and
+          No account needed. Projects are saved in this browser only. Add Clerk and
           Supabase keys to{" "}
           <code className="rounded bg-amber-500/15 px-1">.env.local</code> for
           sign-in and shared storage.

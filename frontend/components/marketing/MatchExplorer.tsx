@@ -9,7 +9,7 @@ import evidence from "@/lib/matchEvidence.json"
  *
  * This is the product's actual differentiator made touchable. Competing tools
  * return a similarity score and ask you to trust it; Entify can show the
- * Fellegi-Sunter arithmetic — a starting prior, then each field pushing the
+ * Fellegi-Sunter arithmetic: a starting prior, then each field pushing the
  * evidence up or down, summing to a match weight and a probability.
  *
  * Every number here is real output from the bundled benchmark, exported by
@@ -234,7 +234,7 @@ export function MatchExplorer() {
 
           <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground/70">
             Drag it. A lower threshold merges more records and makes more
-            mistakes — the trade-off is yours to set, not ours to hide.
+            mistakes. The trade-off is yours to set, not ours to hide.
           </p>
         </div>
       </div>

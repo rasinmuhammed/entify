@@ -130,7 +130,7 @@ export function BlockingRulesExplainer() {
                         <Lightbulb className="h-4 w-4" />
                         <AlertDescription>
                             <strong>Example:</strong> If blocking on "first 3 characters of last name",
-                            we only compare "Smith" with "Smyth" and "Smithson" — not with "Johnson" or "Williams".
+                            we only compare "Smith" with "Smyth" and "Smithson", not with "Johnson" or "Williams".
                         </AlertDescription>
                     </Alert>
 
@@ -164,21 +164,21 @@ export function BlockingRulesExplainer() {
                         <div className="bg-muted p-3 rounded-lg">
                             <code className="text-sm">l.email = r.email</code>
                             <p className="text-xs text-muted-foreground mt-1">
-                                ✅ Exact match on email column
+                                 Exact match on email column
                             </p>
                         </div>
 
                         <div className="bg-muted p-3 rounded-lg">
                             <code className="text-sm">SUBSTRING(l.name, 1, 3) = SUBSTRING(r.name, 1, 3)</code>
                             <p className="text-xs text-muted-foreground mt-1">
-                                ✅ Match on first 3 characters of name
+                                 Match on first 3 characters of name
                             </p>
                         </div>
 
                         <div className="bg-muted p-3 rounded-lg">
                             <code className="text-sm">l.first_name = r.first_name AND l.last_name = r.last_name</code>
                             <p className="text-xs text-muted-foreground mt-1">
-                                ✅ Compound rule: both names must match
+                                 Compound rule: both names must match
                             </p>
                         </div>
                     </div>
@@ -196,8 +196,8 @@ export function BlockingRulesExplainer() {
                 <CardContent>
                     <Tabs defaultValue="dos" className="w-full">
                         <TabsList className="grid w-full grid-cols-2">
-                            <TabsTrigger value="dos">✅ Do</TabsTrigger>
-                            <TabsTrigger value="donts">❌ Don't</TabsTrigger>
+                            <TabsTrigger value="dos">Do</TabsTrigger>
+                            <TabsTrigger value="donts">Don't</TabsTrigger>
                         </TabsList>
                         <TabsContent value="dos" className="space-y-2 mt-4">
                             <div className="flex items-start gap-2">
@@ -259,7 +259,7 @@ export function BlockingRulesExplainer() {
                             <p className="text-xs text-muted-foreground">
                                 <strong>Precision:</strong> % of matched pairs that are true matches<br />
                                 <strong>Recall:</strong> % of true matches that were found<br />
-                                Blocking affects recall — too strict = missed matches
+                                Blocking affects recall. Too strict = missed matches
                             </p>
                         </div>
                         <div className="space-y-2">

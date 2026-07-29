@@ -67,7 +67,7 @@ export async function saveBlockingRules(projectId: string, rules: string[]) {
             .eq('id', projectId)
 
         if (error) throw error
-        console.log('✅ Blocking rules saved:', rules.length)
+        console.log('Blocking rules saved:', rules.length)
         return { success: true }
     } catch (error) {
         console.error('Error saving blocking rules:', error)
@@ -90,7 +90,7 @@ export async function saveComparisonConfig(projectId: string, config: any[]) {
             .eq('id', projectId)
 
         if (error) throw error
-        console.log('✅ Comparison config saved:', config.length)
+        console.log('Comparison config saved:', config.length)
         return { success: true }
     } catch (error) {
         console.error('Error saving comparison config:', error)

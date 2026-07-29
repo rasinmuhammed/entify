@@ -232,7 +232,7 @@ export default function ProjectPage() {
                 const storageKey = `primary_key_${activeDataset.id}`
                 localStorage.setItem(storageKey, columnName)
             } else {
-                console.log('✅ Primary key saved to database:', columnName)
+                console.log('Primary key saved to database:', columnName)
                 setPageError(null)
             }
 
@@ -259,7 +259,7 @@ export default function ProjectPage() {
                     primary_key_column: columnName
                 })
 
-                console.log('✅ Primary key stored locally:', columnName)
+                console.log('Primary key stored locally:', columnName)
             }
         }
     }
@@ -272,7 +272,7 @@ export default function ProjectPage() {
             const bundle = await loadProjectBundle(supabase, id)
             const { project, dataset } = bundle
 
-            console.log('✅ Project loaded:', project.name)
+            console.log('Project loaded:', project.name)
             setActiveProject(project)
             setRenameValue(project.name)
             setBlockingRules(bundle.blockingRules)
@@ -285,7 +285,7 @@ export default function ProjectPage() {
             setActiveDataset(dataset)
 
             if (!dataset.file_path) {
-                console.error('❌ Dataset missing file_path:', dataset)
+                console.error('Dataset missing file_path:', dataset)
                 setPageError('This dataset is missing its file path. Please re-upload it from the Data Vault.')
             }
             setLoading(false)
@@ -347,14 +347,14 @@ export default function ProjectPage() {
             if (activeDataset.primary_key_column) {
                 setPrimaryKey(activeDataset.primary_key_column)
                 setIsPrimaryKeyConfirmed(true)
-                console.log('✅ Loaded primary key from database:', activeDataset.primary_key_column)
+                console.log('Loaded primary key from database:', activeDataset.primary_key_column)
             } else {
                 const storageKey = `primary_key_${activeDataset.id}`
                 const storedKey = localStorage.getItem(storageKey)
                 if (storedKey) {
                     setPrimaryKey(storedKey)
                     setIsPrimaryKeyConfirmed(true)
-                    console.log('✅ Loaded primary key from localStorage:', storedKey)
+                    console.log('Loaded primary key from localStorage:', storedKey)
                 }
             }
         }
@@ -399,7 +399,7 @@ export default function ProjectPage() {
             if (response.status === 'success') {
                 setResults(response.matches)
                 setActivePhase('results')
-                console.log(`✅ Found ${response.total_pairs} matches in ${response.execution_time_ms}ms`)
+                console.log(` Found ${response.total_pairs} matches in ${response.execution_time_ms}ms`)
             } else {
                 throw new Error(response.error || 'Resolution failed')
             }
@@ -724,7 +724,7 @@ export default function ProjectPage() {
                                                 (!previewData || previewData.length === 0) &&
                                                 dataColumns.length === 0) && (
                                                     <div className="text-sm text-muted-foreground p-4 bg-yellow-50 dark:bg-yellow-950/20 rounded">
-                                                        ⚠️ No columns detected. Please ensure your data is loaded in the Profile phase first.
+                                                         No columns detected. Please ensure your data is loaded in the Profile phase first.
                                                     </div>
                                                 )}
 
@@ -760,7 +760,7 @@ export default function ProjectPage() {
                                             />
                                             {dataColumns.length === 0 && (
                                                 <div className="text-sm text-muted-foreground p-4 bg-yellow-50 dark:bg-yellow-950/20 rounded border border-yellow-500/50">
-                                                    <p className="font-medium mb-2">⚠️ No columns detected</p>
+                                                    <p className="font-medium mb-2">No columns detected</p>
                                                     <p className="text-xs">
                                                         Please ensure your data is loaded in the Profile phase first.
                                                         The columns will automatically appear here once data is loaded.
@@ -805,9 +805,9 @@ export default function ProjectPage() {
                                                 variant="default"
                                             >
                                                 {isProcessing ? (
-                                                    <>🔄 Processing...</>
+                                                    <>Processing...</>
                                                 ) : (
-                                                    <>▶️ Run Pipeline</>
+                                                    <>▶ Run Pipeline</>
                                                 )}
                                             </Button>
                                             <Button onClick={() => setActivePhase('laboratory')} disabled={!modelTrained} variant="outline">
@@ -859,7 +859,7 @@ export default function ProjectPage() {
                                                             const tableName = `${activeDataset.name.replace(/[^a-zA-Z0-9_]/g, '_')}_original`
                                                             const idColumn = primaryKey || 'unique_id'
 
-                                                            console.log('📥 Exporting enriched clusters...')
+                                                            console.log('Exporting enriched clusters...')
 
                                                             const csvData = await fetchApiText('/api/export-clusters', undefined, {
                                                                 table_name: tableName,
@@ -876,7 +876,7 @@ export default function ProjectPage() {
                                                             document.body.removeChild(a)
                                                             URL.revokeObjectURL(url)
 
-                                                            console.log('✅ Enriched clusters exported successfully')
+                                                            console.log('Enriched clusters exported successfully')
                                                         } catch (error) {
                                                             console.error('Export failed:', error)
                                                             setPageError(`Export failed: ${error instanceof Error ? error.message : 'Unknown error'}`)

@@ -198,8 +198,8 @@ const FILE_PREFIX = "entify:file:"
 /**
  * Object storage backed by IndexedDB.
  *
- * Datasets are far too large for localStorage — a 4,000-row CSV is already
- * ~500KB and the quota is typically 5MB total — so uploaded files go to
+ * Datasets are far too large for localStorage. A 4,000-row CSV is already
+ * ~500KB and the quota is typically 5MB total, so uploaded files go to
  * IndexedDB while table rows stay in localStorage.
  */
 function openFileStore(): Promise<IDBDatabase> {

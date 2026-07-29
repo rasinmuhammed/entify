@@ -17,7 +17,7 @@ interface UploadProps {
 }
 
 /**
- * Lets a parent push a file in without a drag or a file picker — used by the
+ * Lets a parent push a file in without a drag or a file picker. Used by the
  * sample-dataset loader so the demo takes exactly the same path a real upload
  * does, rather than being a special case that can rot independently.
  */
@@ -134,7 +134,7 @@ export const Upload = forwardRef<UploadHandle, UploadProps>(function Upload(
 
       setProgress(90)
 
-      console.log('📤 Uploading to Supabase...')
+      console.log('Uploading to Supabase...')
       console.log('User ID:', user?.id)
 
       // 5. Upload file to Supabase Storage for persistence
@@ -147,11 +147,11 @@ export const Upload = forwardRef<UploadHandle, UploadProps>(function Upload(
         })
 
       if (uploadError) {
-        console.error('❌ Storage upload failed:', uploadError)
+        console.error('Storage upload failed:', uploadError)
         throw new Error(`Failed to upload to storage: ${uploadError.message}`)
       }
 
-      console.log('✅ File uploaded to storage:', filePathInStorage)
+      console.log('File uploaded to storage:', filePathInStorage)
 
       // 6. Insert into Supabase database
       const { data: newDataset, error: insertError } = await supabase
@@ -167,11 +167,11 @@ export const Upload = forwardRef<UploadHandle, UploadProps>(function Upload(
         .single()
 
       if (insertError) {
-        console.error('❌ Database insert failed:', insertError)
+        console.error('Database insert failed:', insertError)
         throw new Error(`Failed to save dataset: ${insertError.message}`)
       }
 
-      console.log('✅ Dataset saved to database:', newDataset)
+      console.log('Dataset saved to database:', newDataset)
 
       // Update global store
       setActiveDataset({
@@ -191,7 +191,7 @@ export const Upload = forwardRef<UploadHandle, UploadProps>(function Upload(
       }, 800)
 
     } catch (error) {
-      console.error("❌ Upload failed:", error)
+      console.error("Upload failed:", error)
       setUploading(false)
       setError(
         error instanceof Error ? error.message : "Upload failed for an unknown reason."

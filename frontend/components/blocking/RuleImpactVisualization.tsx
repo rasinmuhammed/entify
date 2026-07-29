@@ -209,23 +209,23 @@ export function RuleImpactVisualization({ totalRecords, rules }: RuleImpactVisua
             {ruleImpacts.length > 0 && (
                 <Card className="border-border bg-muted dark:bg-muted">
                     <CardHeader>
-                        <CardTitle className="text-sm">💡 Recommendations</CardTitle>
+                        <CardTitle className="text-sm">Recommendations</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-2 text-sm">
                         {avgReduction < 90 && (
-                            <p>⚠️ Consider adding more selective rules to reduce comparison load</p>
+                            <p>Consider adding more selective rules to reduce comparison load</p>
                         )}
                         {ruleImpacts.filter(r => r.selectivity === 'high').length === 0 && (
-                            <p>💡 Add at least one high-selectivity rule (email, ID) for better performance</p>
+                            <p>Add at least one high-selectivity rule (email, ID) for better performance</p>
                         )}
                         {ruleImpacts.filter(r => r.selectivity === 'low').length > 2 && (
-                            <p>⚠️ Too many low-selectivity rules may not reduce comparisons enough</p>
+                            <p>Too many low-selectivity rules may not reduce comparisons enough</p>
                         )}
                         {ruleImpacts.length === 1 && (
-                            <p>💡 Add multiple rules (OR logic) to increase recall and catch more matches</p>
+                            <p>Add multiple rules (OR logic) to increase recall and catch more matches</p>
                         )}
                         {avgReduction >= 95 && ruleImpacts.length >= 3 && (
-                            <p>✅ Great balance! Your rules should provide good performance and recall</p>
+                            <p>Great balance! Your rules should provide good performance and recall</p>
                         )}
                     </CardContent>
                 </Card>

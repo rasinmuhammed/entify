@@ -12,7 +12,7 @@ import { useWasm } from "@/lib/wasm/WasmContext"
  * Loads the generated benchmark dataset without asking for a file.
  *
  * The single biggest barrier to evaluating a matching tool is having to find
- * a suitable CSV first — most people do not have messy customer data to hand,
+ * a suitable CSV first. Most people do not have messy customer data to hand,
  * and the ones who do are not going to hand it over on a first look. This
  * fetches the generator's output from the backend and pushes it through the
  * same upload path a real file takes, so nothing about the demo is a special
@@ -82,7 +82,7 @@ export function SampleDatasetCard({
             No data to hand?
           </h3>
           <p className="mt-1.5 max-w-md text-sm leading-relaxed text-muted-foreground">
-            Load a generated customer file — about 4,700 rows covering 4,000
+            Load a generated customer file: about 4,700 rows covering 4,000
             real people, with nicknames, typo&apos;d emails, reformatted phone
             numbers and roughly 700 duplicates to find.
           </p>

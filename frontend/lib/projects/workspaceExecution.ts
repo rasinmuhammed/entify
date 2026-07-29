@@ -210,12 +210,12 @@ export async function runProjectResolution({
     }
 
     console.log('\n════════════════════════════════════════════════════════════')
-    console.log('🚀 FRONTEND: Sending to Backend API')
+    console.log('FRONTEND: Sending to Backend API')
     console.log('════════════════════════════════════════════════════════════')
-    console.log(`📊 Dataset: ${tableToUse}`)
-    console.log(`📏 Rows: ${rows.length}`)
-    console.log(`🔑 Unique ID: ${uniqueIdCol}`)
-    console.log('\n📦 Full Settings Object:')
+    console.log(` Dataset: ${tableToUse}`)
+    console.log(` Rows: ${rows.length}`)
+    console.log(` Unique ID: ${uniqueIdCol}`)
+    console.log('\n Full Settings Object:')
     console.log(JSON.stringify(settings, null, 2))
     console.log('════════════════════════════════════════════════════════════\n')
 

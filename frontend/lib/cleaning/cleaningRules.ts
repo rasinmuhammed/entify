@@ -49,42 +49,42 @@ export const CLEANING_RULES: CleaningRuleDefinition[] = [
         type: 'remove_nulls',
         label: 'Remove Nulls',
         description: 'Remove rows where the column value is NULL or empty',
-        icon: '🗑️',
+        icon: '',
         requiresColumn: true
     },
     {
         type: 'trim',
         label: 'Trim Whitespace',
         description: 'Remove leading and trailing whitespace',
-        icon: '✂️',
+        icon: '',
         requiresColumn: true
     },
     {
         type: 'lowercase',
         label: 'Lowercase',
         description: 'Convert all text to lowercase',
-        icon: '🔤',
+        icon: '',
         requiresColumn: true
     },
     {
         type: 'uppercase',
         label: 'Uppercase',
         description: 'Convert all text to UPPERCASE',
-        icon: '🔠',
+        icon: '',
         requiresColumn: true
     },
     {
         type: 'remove_duplicates',
         label: 'Remove Duplicates',
         description: 'Remove exact duplicate rows',
-        icon: '🔁',
+        icon: '',
         requiresColumn: false
     },
     {
         type: 'regex_replace',
         label: 'Regex Replace',
         description: 'Replace text using regular expressions',
-        icon: '🔍',
+        icon: '',
         requiresColumn: true,
         params: [
             { name: 'pattern', label: 'Pattern', type: 'string', default: '' },
@@ -95,21 +95,21 @@ export const CLEANING_RULES: CleaningRuleDefinition[] = [
         type: 'standardize_phone',
         label: 'Standardize Phone',
         description: 'Format phone numbers to E.164 format',
-        icon: '📞',
+        icon: '',
         requiresColumn: true
     },
     {
         type: 'remove_special_chars',
         label: 'Remove Special Chars',
         description: 'Remove special characters, keep alphanumeric',
-        icon: '🧹',
+        icon: '',
         requiresColumn: true
     },
     {
         type: 'remove_stopwords',
         label: 'Remove Stopwords',
         description: 'Remove common words (the, a, an, and, or, etc.)',
-        icon: '🚫',
+        icon: '',
         requiresColumn: true,
         params: [
             { name: 'language', label: 'Language', type: 'string', default: 'english' },
@@ -120,7 +120,7 @@ export const CLEANING_RULES: CleaningRuleDefinition[] = [
         type: 'normalize_text',
         label: 'Normalize Text',
         description: 'Standardize text format (lowercase, remove accents, etc.)',
-        icon: '📝',
+        icon: '',
         requiresColumn: true,
         params: [
             { name: 'lowercase', label: 'Convert to Lowercase', type: 'boolean', default: true },
@@ -134,7 +134,7 @@ export const CLEANING_RULES: CleaningRuleDefinition[] = [
         type: 'replace_pattern',
         label: 'Replace Pattern',
         description: 'Find and replace text patterns (regex supported)',
-        icon: '🔄',
+        icon: '',
         requiresColumn: true,
         params: [
             { name: 'pattern', label: 'Find Pattern (regex)', type: 'string', default: '' },
@@ -408,7 +408,7 @@ export async function applyCleaningRules(
                 if (uploadError) {
                     console.error('Failed to upload cleaned data:', uploadError)
                 } else {
-                    console.log('✅ Cleaned data uploaded to storage')
+                    console.log('Cleaned data uploaded to storage')
 
                     // Update dataset metadata
                     const cleaningMetadata = {
@@ -440,7 +440,7 @@ export async function applyCleaningRules(
                     if (updateError) {
                         console.error('Failed to update dataset metadata:', updateError)
                     } else {
-                        console.log('✅ Dataset metadata updated')
+                        console.log('Dataset metadata updated')
                     }
                 }
             } catch (error) {

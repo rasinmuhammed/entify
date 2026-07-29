@@ -52,7 +52,7 @@ export function ComparisonExplainer() {
                             <span className="text-sm font-medium">Match Score</span>
                         </div>
                         <p className="text-xs text-muted-foreground ml-16">
-                            Overall confidence: 92% → MATCH ✅
+                            Overall confidence: 92% → MATCH
                         </p>
                     </div>
                 </CardContent>
@@ -128,7 +128,7 @@ export function ComparisonExplainer() {
                                 </div>
                             </div>
                             <p className="text-xs text-muted-foreground mt-2">
-                                ✅ High confidence match - These records likely refer to the same entity
+                                 High confidence match - These records likely refer to the same entity
                             </p>
                         </div>
                     </div>
@@ -146,31 +146,31 @@ export function ComparisonExplainer() {
                 <CardContent className="space-y-3">
                     <Alert>
                         <AlertDescription className="text-sm">
-                            <strong>✅ Do:</strong> Use exact match for unique identifiers (email, ID)
+                            <strong>Do:</strong>Use exact match for unique identifiers (email, ID)
                         </AlertDescription>
                     </Alert>
 
                     <Alert>
                         <AlertDescription className="text-sm">
-                            <strong>✅ Do:</strong> Use fuzzy methods (Levenshtein, Jaro-Winkler) for names
+                            <strong>Do:</strong>Use fuzzy methods (Levenshtein, Jaro-Winkler) for names
                         </AlertDescription>
                     </Alert>
 
                     <Alert>
                         <AlertDescription className="text-sm">
-                            <strong>✅ Do:</strong> Give higher weights to more reliable fields
+                            <strong>Do:</strong>Give higher weights to more reliable fields
                         </AlertDescription>
                     </Alert>
 
                     <Alert>
                         <AlertDescription className="text-sm">
-                            <strong>⚠️ Don't:</strong> Use exact match on fields with typos or variations
+                            <strong>Don't:</strong>Use exact match on fields with typos or variations
                         </AlertDescription>
                     </Alert>
 
                     <Alert>
                         <AlertDescription className="text-sm">
-                            <strong>⚠️ Don't:</strong> Set all weights equally - prioritize important fields
+                            <strong>Don't:</strong>Set all weights equally - prioritize important fields
                         </AlertDescription>
                     </Alert>
                 </CardContent>

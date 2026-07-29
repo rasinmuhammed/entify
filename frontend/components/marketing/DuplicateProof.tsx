@@ -7,7 +7,7 @@ import { ArrowDown, Sparkles } from "lucide-react"
  * are obviously the same person, and the one clean record they collapse into.
  *
  * The data is real output from the bundled benchmark, not invented for the
- * page — the same group appears on page 2 of the generated audit report. The
+ * page. The same group appears on page 2 of the generated audit report. The
  * fields that differ are highlighted, because the argument is not "we found a
  * match", it is "look how little these rows have in common on the surface".
  */
@@ -73,7 +73,7 @@ function Cell({
         changed ? "text-amber-300/90" : "text-foreground/80",
       ].join(" ")}
     >
-      {value || <span className="text-muted-foreground/40">—</span>}
+      {value || <span className="text-muted-foreground/40">&middot;</span>}
     </td>
   )
 }
@@ -140,7 +140,7 @@ export function DuplicateProof() {
       </div>
 
       <p className="pt-1 text-xs leading-relaxed text-muted-foreground/70">
-        Survivorship runs per field, not per row — the most complete email and
+        Survivorship runs per field, not per row. The most complete email and
         the best-formatted phone number often live on different records. The
         source IDs are kept, so any merge can be traced or undone.
       </p>

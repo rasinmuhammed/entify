@@ -27,7 +27,7 @@ const STEPS = [
   {
     n: "01",
     title: "Upload a CSV",
-    body: "Entify profiles every column, works out what it holds — names, emails, phones, addresses — and picks a primary key.",
+    body: "Entify profiles every column, works out what it holds (names, emails, phones, addresses) and picks a primary key.",
   },
   {
     n: "02",
@@ -46,7 +46,7 @@ export default function HomePage() {
 
   return (
     <div className="relative">
-      {/* Hairline grid — structure rather than colour. Almost subliminal, and
+      {/* Hairline grid for structure rather than colour. Almost subliminal, and
           it does the job the four-hue radial wash used to do badly. */}
       <div
         aria-hidden
@@ -115,7 +115,7 @@ export default function HomePage() {
             evidence up or down until it lands on a probability.
           </p>
           <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground/70">
-            Real pairs from the benchmark below — including one the model
+            Real pairs from the benchmark below, including one the model
             correctly refused to merge.
           </p>
         </Reveal>
@@ -140,7 +140,7 @@ export default function HomePage() {
                 claimed.
               </p>
               <p className="mt-4 leading-relaxed text-muted-foreground">
-                Run it yourself — it is part of the test suite, and a regression
+                Run it yourself. It is part of the test suite, and a regression
                 fails the build.
               </p>
 
@@ -188,7 +188,7 @@ export default function HomePage() {
         <Reveal as="p" className="mt-4 max-w-2xl leading-relaxed text-muted-foreground">
           Record linkage normally demands that you hand-write blocking
           strategies and comparison levels. Entify works them out from your
-          data — and on our benchmark, its automatic configuration scores
+          data, and on our benchmark its automatic configuration scores
           higher than the one we tuned by hand.
         </Reveal>
 
@@ -203,7 +203,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Honesty section — differentiating, and it is true */}
+      {/* Honesty section: differentiating, and it is true */}
       <section className="border-t border-border/50 bg-card/20">
         <Reveal className="mx-auto max-w-5xl px-6 py-20">
           <div className="grid gap-10 md:grid-cols-2">
@@ -214,7 +214,7 @@ export default function HomePage() {
               <ul className="mt-5 space-y-3 text-sm leading-relaxed text-muted-foreground">
                 {[
                   "Probabilistic matching that survives typos, nicknames and reformatted phone numbers",
-                  "An explanation for every match — which field contributed how much evidence",
+                  "An explanation for every match, showing which field contributed how much evidence",
                   "One clean row per entity, with a trail back to the records it came from",
                   "A PDF audit report where every figure is measured, not estimated",
                 ].map((item) => (
@@ -232,9 +232,9 @@ export default function HomePage() {
               </h2>
               <ul className="mt-5 space-y-3 text-sm leading-relaxed text-muted-foreground">
                 {[
-                  "Files beyond roughly a million rows — matching runs in memory",
+                  "Files past roughly 100,000 rows. Matching runs in memory and blocking fails above that",
                   "Concurrent runs; one result is held at a time",
-                  "Writing back to your CRM — export is CSV",
+                  "Writing back to your CRM, since export is CSV",
                   "Incremental matching as new records arrive",
                 ].map((item) => (
                   <li key={item} className="flex gap-3">

@@ -197,11 +197,11 @@ def profile_columns(engine: EntityResolutionEngine, table_name: str) -> list[Col
         )
 
         if role == ColumnRole.IDENTIFIER:
-            item.reason = "Looks like a unique key — excluded from matching"
+            item.reason = "Looks like a unique key, excluded from matching"
         elif role == ColumnRole.LOW_SIGNAL:
-            item.reason = "Only one distinct value — no matching signal"
+            item.reason = "Only one distinct value, so no matching signal"
         elif empty_ratio > MAX_EMPTY_RATIO:
-            item.reason = f"{empty_ratio:.0%} empty — too sparse to match on"
+            item.reason = f"{empty_ratio:.0%} empty, too sparse to match on"
         else:
             item.reason = f"Detected as {role.replace('_', ' ')}"
 
@@ -391,7 +391,7 @@ def generate(
         chosen.append(candidate.sql)
         total_pairs += count
         notes.append(
-            f"Blocking on '{candidate.explanation}' — {count:,} candidate pairs."
+            f"Blocking on '{candidate.explanation}': {count:,} candidate pairs."
         )
 
     if not chosen:

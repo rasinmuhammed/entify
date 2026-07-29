@@ -34,7 +34,7 @@ To try it against data with known duplicates, grab the generated sample:
 curl -o demo_customers.csv "http://localhost:8000/api/demo/dataset?entities=4000"
 ```
 
-That file holds about 4,700 rows covering 4,000 real people — the same person
+That file holds about 4,700 rows covering 4,000 real people. The same person
 entered twice with a nickname, a typo'd email, a differently formatted phone
 number, or `Street` written as `St`. Upload it and the matcher should recover
 roughly 700 duplicate records.
@@ -63,42 +63,42 @@ Detection is by presence of credentials, so there is no flag to get wrong. Run
 
 ## What it does
 
-**Configure itself** — `POST /api/autoconfig` reads a CSV, works out what each
+**Configure itself.** `POST /api/autoconfig` reads a CSV, works out what each
 column holds (name, email, phone, address, locality, date, identifier),
 proposes blocking rules, measures how many pairs each one actually generates,
 and keeps the set that fits a comparison budget. Every decision carries a
 stated reason and can be overridden.
 
 On the benchmark, automatic configuration scores **precision 0.999, recall
-0.943 (F1 0.970)** — better than the hand-tuned config below, while scoring
+0.943 (F1 0.970)**, better than the hand-tuned config below, while scoring
 less than half the candidate pairs. That is the difference between a tool for
 people who understand record linkage and one that anybody can use.
 
-**Profile** — row counts, distinct values and completeness per column. Missing
+**Profile.** Row counts, distinct values and completeness per column. Missing
 data counts nulls *and* blank strings, because a column that is 40% empty
 strings is 40% empty.
 
-**Block** — candidate pair generation. Comparing 4,000 records naively is 8
+**Block.** Candidate pair generation. Comparing 4,000 records naively is 8
 million pairs; blocking cuts that to the thousands that could plausibly match.
 Pair counts are computed by `GROUP BY` cardinality in O(n), not by a self-join.
 
-**Merge** — `GET /api/merge/export` returns the deduplicated file: one
+**Merge.** `GET /api/merge/export` returns the deduplicated file: one
 surviving record per real entity. Survivorship is applied per field, not per
 record, because the most complete address and the best phone number usually
 live on different rows. Source IDs are retained so any merge can be traced or
 undone.
 
-**Compare** — per-field comparison levels: exact, Jaro-Winkler, Jaccard,
+**Compare.** Per-field comparison levels: exact, Jaro-Winkler, Jaccard,
 Levenshtein, plus semantic blocking via sentence-transformers.
 
-**Train** — u values by random sampling, then m values and the prior by
+**Train.** U values by random sampling, then m values and the prior by
 expectation maximisation, on your data. Training status is reported back, not
 assumed.
 
-**Review** — score distribution, threshold analysis, and Splink's waterfall
+**Review.** Score distribution, threshold analysis, and Splink's waterfall
 charts explaining which fields contributed how much evidence to a pair.
 
-**Audit** — a PDF report of what was found.
+**Audit.** A PDF report of what was found.
 
 ---
 
@@ -108,7 +108,7 @@ charts explaining which fields contributed how much evidence to a pair.
 example groups from the data, and the methodology behind the numbers.
 
 Every figure in it is measured. The report deliberately does **not** estimate
-financial savings — it prints a cost worksheet where you supply your own unit
+financial savings. It prints a cost worksheet where you supply your own unit
 rates, and totals only what you provided. An invented savings figure does not
 survive the first question from a finance team, and the example groups are the
 stronger argument anyway: if a reader can see four records that are obviously
@@ -152,9 +152,28 @@ Duplicate records in the generator are given a *different* signup date from
 their original. Copying it verbatim would hand the matcher a near-perfect
 identifier and inflate every number in this table.
 
+### Scaling
+
+Measured on an Apple silicon laptop with `scripts/benchmark_scale.py`, using
+the same tuned configuration:
+
+| Rows    |  Time | Peak memory |
+| ------- | ----- | ----------- |
+| 1,859   |  1.3s |      309 MB |
+| 6,129   |  2.0s |      453 MB |
+| 24,729  |  4.2s |     1.3 GB |
+| 74,132  | 32.3s |     2.5 GB |
+| 185,487 |  fails |     2.5 GB |
+
+Memory grows faster than row count, and blocked pair generation fails with a
+`SplinkException` somewhere between 74,000 and 185,000 rows. So the honest
+working range today is tens of thousands of rows, not millions. Getting past
+that means a persistent DuckDB file instead of an in-memory database, and
+streaming predictions rather than holding them in a list.
+
 Blocking matters more than any other single choice: a loose rule set on the
 same data scored 230,785 pairs at precision 0.61, while the tuned rules scored
-13,376 pairs at precision 0.98 — seventeen times less work, and better answers.
+13,376 pairs at precision 0.98: seventeen times less work, and better answers.
 
 ---
 
@@ -169,7 +188,7 @@ backend/
   api.py             FastAPI routes
 frontend/
   app/               Next.js 16 routes: vault, project workspace, analytics
-  components/        Workspace UI — blocking, comparison, clustering, charts
+  components/        Workspace UI: blocking, comparison, clustering, charts
   lib/               API client, local persistence shim, config detection
 ```
 
@@ -198,10 +217,10 @@ Stated plainly, because knowing the edges is part of using this.
   time; a second concurrent run replaces the first. Multi-tenant deployment
   needs a keyed engine registry.
 - **Memory-bound.** Uploads are read fully into memory (100 MB cap, via
-  `ENTIFY_MAX_UPLOAD_MB`). Beyond roughly a million rows this wants a DuckDB
+  `ENTIFY_MAX_UPLOAD_MB`). Past roughly 100,000 rows this wants a DuckDB
   file backend and a job queue rather than a request/response cycle.
 - **No authentication on the API.** The backend trusts its caller and assumes
-  it is bound to localhost. Blocking rules are user-supplied SQL by design —
+  it is bound to localhost. Blocking rules are user-supplied SQL by design,
   do not expose this to untrusted callers as-is.
 - **Demo-mode persistence is per-browser.** Clearing site data clears projects.
 - **No automatic phone/address normalisation.** Matching handles format

@@ -214,7 +214,7 @@ export function TrainingPanel({ onTrainingComplete, globalSettings }: TrainingPa
                                         • Higher value (0.01): Dataset has many duplicates - typical for messy data
                                     </p>
                                     <p className="text-yellow-600 dark:text-yellow-400 mt-2">
-                                        💡 Adjust this in the "Comparisons" phase under Global Settings
+                                         Adjust this in the "Comparisons"phase under Global Settings
                                     </p>
                                 </div>
                             </div>
@@ -374,7 +374,7 @@ export function TrainingPanel({ onTrainingComplete, globalSettings }: TrainingPa
                             <li>Show results in the Results phase</li>
                         </ol>
                         <p className="text-xs text-muted-foreground pt-2">
-                            💡 View training progress in real-time through backend logs when running the pipeline.
+                             View training progress in real-time through backend logs when running the pipeline.
                         </p>
                     </div>
                 </CardContent>

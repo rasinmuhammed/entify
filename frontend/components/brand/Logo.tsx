@@ -11,7 +11,7 @@ import { useId } from "react"
  *
  * Drawn in `currentColor` with no gradient, so it inherits from context and
  * survives being printed, favicon-sized, or placed on any surface. The lens is
- * the only filled area — at 16px that solid shape is what stays legible after
+ * the only filled area. At 16px that solid shape is what stays legible after
  * the rings blur together.
  */
 export function Logo({

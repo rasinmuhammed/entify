@@ -263,7 +263,7 @@ export function SimpleBlockingRuleBuilder({ columns, onRulesChange, initialRules
                                                 <CardTitle className="text-sm font-mono">{rule.column}</CardTitle>
                                                 {isId && (
                                                     <Badge variant="outline" className="text-xs bg-yellow-500/10 border-yellow-500/50 text-yellow-700 dark:text-yellow-400">
-                                                        ⚠️ ID Column
+                                                         ID Column
                                                     </Badge>
                                                 )}
                                             </div>
@@ -350,7 +350,7 @@ export function SimpleBlockingRuleBuilder({ columns, onRulesChange, initialRules
                 <Card className="bg-green-50/50 dark:bg-green-950/20 border-green-500/50">
                     <CardContent className="py-4">
                         <div className="space-y-2">
-                            <p className="text-sm font-medium">✅ {enabledCount} blocking {enabledCount === 1 ? 'rule' : 'rules'} configured</p>
+                            <p className="text-sm font-medium">{enabledCount} blocking {enabledCount === 1 ? 'rule': 'rules'} configured</p>
                             <p className="text-xs text-muted-foreground">
                                 Record pairs will be compared if they match ANY of these rules (OR logic).
                                 This creates {enabledCount === 1 ? 'one candidate set' : `${enabledCount} candidate sets`} for comparison.
