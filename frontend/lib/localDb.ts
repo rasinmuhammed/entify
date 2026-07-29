@@ -193,12 +193,108 @@ class LocalTable {
   }
 }
 
+const FILE_PREFIX = "entify:file:"
+
+/**
+ * Object storage backed by IndexedDB.
+ *
+ * Datasets are far too large for localStorage — a 4,000-row CSV is already
+ * ~500KB and the quota is typically 5MB total — so uploaded files go to
+ * IndexedDB while table rows stay in localStorage.
+ */
+function openFileStore(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open("entify-files", 1)
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains("files")) {
+        request.result.createObjectStore("files")
+      }
+    }
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error)
+  })
+}
+
+async function putFile(path: string, blob: Blob): Promise<void> {
+  const db = await openFileStore()
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction("files", "readwrite")
+    tx.objectStore("files").put(blob, FILE_PREFIX + path)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+  db.close()
+}
+
+async function getFile(path: string): Promise<Blob | null> {
+  const db = await openFileStore()
+  const blob = await new Promise<Blob | null>((resolve, reject) => {
+    const request = db.transaction("files", "readonly").objectStore("files").get(FILE_PREFIX + path)
+    request.onsuccess = () => resolve((request.result as Blob) ?? null)
+    request.onerror = () => reject(request.error)
+  })
+  db.close()
+  return blob
+}
+
+class LocalBucket {
+  async upload(path: string, file: Blob) {
+    try {
+      await putFile(path, file)
+      return { data: { path }, error: null }
+    } catch (err) {
+      return {
+        data: null,
+        error: { message: err instanceof Error ? err.message : "Local upload failed" },
+      }
+    }
+  }
+
+  async download(path: string) {
+    try {
+      const blob = await getFile(path)
+      return blob
+        ? { data: blob, error: null }
+        : { data: null, error: { message: "File not found in local storage" } }
+    } catch (err) {
+      return {
+        data: null,
+        error: { message: err instanceof Error ? err.message : "Local download failed" },
+      }
+    }
+  }
+
+  async remove(paths: string[]) {
+    const db = await openFileStore()
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction("files", "readwrite")
+      paths.forEach((path) => tx.objectStore("files").delete(FILE_PREFIX + path))
+      tx.oncomplete = () => resolve()
+    })
+    db.close()
+    return { data: paths.map((path) => ({ name: path })), error: null }
+  }
+
+  getPublicUrl(path: string) {
+    return { data: { publicUrl: `local://${path}` } }
+  }
+
+  async createSignedUrl(path: string) {
+    return { data: { signedUrl: `local://${path}` }, error: null }
+  }
+}
+
 export function createLocalClient() {
   return {
     /** Marks this as the offline shim so UI can show a demo-mode badge. */
     isLocal: true as const,
     from(table: string) {
       return new LocalTable(table)
+    },
+    storage: {
+      from(_bucket: string) {
+        return new LocalBucket()
+      },
     },
     auth: {
       getUser: async () => ({

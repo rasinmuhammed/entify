@@ -1,9 +1,8 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { forwardRef, useCallback, useImperativeHandle, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { UploadCloud, FileText, CheckCircle, Loader2 } from "lucide-react"
-import { GlassCard } from "@/components/ui/glass-card"
 import axios from "axios"
 import { cn } from "@/lib/utils"
 import { createClient } from "@/utils/supabase/client"
@@ -17,7 +16,19 @@ interface UploadProps {
   onDatasetUploaded?: (dataset: any) => void
 }
 
-export function Upload({ onUploadComplete, onDatasetUploaded }: UploadProps = {}) {
+/**
+ * Lets a parent push a file in without a drag or a file picker — used by the
+ * sample-dataset loader so the demo takes exactly the same path a real upload
+ * does, rather than being a special case that can rot independently.
+ */
+export type UploadHandle = {
+  upload: (file: File) => Promise<void>
+}
+
+export const Upload = forwardRef<UploadHandle, UploadProps>(function Upload(
+  { onUploadComplete, onDatasetUploaded }: UploadProps,
+  ref
+) {
   const user = useAppUser()
   const router = useRouter()
   const { setActiveDataset } = useDatasetStore()
@@ -26,6 +37,7 @@ export function Upload({ onUploadComplete, onDatasetUploaded }: UploadProps = {}
   const [isDragging, setIsDragging] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState(0)
+  const [error, setError] = useState<string | null>(null)
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -54,9 +66,11 @@ export function Upload({ onUploadComplete, onDatasetUploaded }: UploadProps = {}
 
   const uploadFile = async (file: File) => {
     if (!duckDB || !isReady) {
-      alert("Please wait for the database to initialize")
+      // An alert() blocks the thread and cannot be styled; surface it inline.
+      setError("Still starting the in-browser database. Try again in a moment.")
       return
     }
+    setError(null)
 
     setUploading(true)
     setProgress(10)
@@ -179,17 +193,31 @@ export function Upload({ onUploadComplete, onDatasetUploaded }: UploadProps = {}
     } catch (error) {
       console.error("❌ Upload failed:", error)
       setUploading(false)
-      alert(`Upload failed: ${(error as any).message || 'Unknown error'}`)
+      setError(
+        error instanceof Error ? error.message : "Upload failed for an unknown reason."
+      )
     }
   }
 
+  useImperativeHandle(ref, () => ({ upload: uploadFile }), [duckDB, isReady])
+
   return (
-    <GlassCard className="w-full max-w-2xl mx-auto mt-10 overflow-hidden relative group">
+    <div className="w-full">
+      {error && (
+        <div
+          role="alert"
+          className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+        >
+          {error}
+        </div>
+      )}
       <div
         className={cn(
-          "border-2 border-dashed rounded-lg p-12 text-center transition-all duration-300",
-          isDragging ? "border-primary bg-primary/10 scale-[1.02]" : "border-white/20 hover:border-white/40",
-          uploading && "opacity-50 pointer-events-none"
+          "rounded-xl border border-dashed p-12 text-center transition-colors duration-200",
+          // Neutral border tokens rather than white/20, which was invisible in
+          // light mode once the palette stopped assuming a dark background.
+          isDragging ? "border-foreground/40 bg-accent" : "border-border hover:border-foreground/25",
+          uploading && "pointer-events-none opacity-50"
         )}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -237,6 +265,6 @@ export function Upload({ onUploadComplete, onDatasetUploaded }: UploadProps = {}
           )}
         </AnimatePresence>
       </div>
-    </GlassCard>
+    </div>
   )
-}
+})

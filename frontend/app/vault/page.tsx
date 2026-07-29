@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
     AlertCircle,
@@ -14,7 +14,8 @@ import {
     Trash2,
 } from "lucide-react"
 
-import { Upload } from "@/components/Upload"
+import { Upload, type UploadHandle } from "@/components/Upload"
+import { SampleDatasetCard } from "@/components/vault/SampleDatasetCard"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -59,6 +60,7 @@ export default function DataVault() {
     const [datasets, setDatasets] = useState<DatasetRecord[]>([])
     const [projects, setProjects] = useState<ProjectRecord[]>([])
     const [loading, setLoading] = useState(true)
+    const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
     const [setupRequired, setSetupRequired] = useState(false)
     const [pageError, setPageError] = useState<string | null>(null)
     const [renameDialogOpen, setRenameDialogOpen] = useState(false)
@@ -69,6 +71,7 @@ export default function DataVault() {
 
     const router = useRouter()
     const supabase = createClient()
+    const uploadRef = useRef<UploadHandle>(null)
 
     const fetchData = useCallback(async () => {
         setLoading(true)
@@ -105,6 +108,7 @@ export default function DataVault() {
             setPageError("Failed to load datasets and projects from Supabase.")
         } finally {
             setLoading(false)
+            setHasLoadedOnce(true)
         }
     }, [supabase])
 
@@ -210,7 +214,10 @@ export default function DataVault() {
         }
     }
 
-    if (loading) {
+    // Only blank the page on the very first load. Showing a full-screen
+    // spinner on every refetch unmounts the whole tree, which restarted any
+    // work in progress inside it.
+    if (loading && !hasLoadedOnce) {
         return (
             <div className="flex items-center justify-center min-h-screen">
                 <Loader2 className="w-8 h-8 animate-spin" />
@@ -220,7 +227,7 @@ export default function DataVault() {
 
     if (setupRequired) {
         return (
-            <div className="container max-w-4xl mx-auto py-10">
+            <div className="mx-auto max-w-4xl px-6 py-10">
                 <Card>
                     <CardHeader>
                         <CardTitle>Setup Required</CardTitle>
@@ -242,11 +249,11 @@ export default function DataVault() {
     }
 
     return (
-        <div className="container max-w-7xl mx-auto py-8 px-6">
+        <div className="mx-auto max-w-6xl px-6 py-10">
             <div className="mb-8">
-                <h1 className="text-3xl font-bold tracking-tight mb-2">Data Vault</h1>
-                <p className="text-muted-foreground">
-                    Manage your datasets and entity resolution projects
+                <h1 className="text-3xl font-semibold tracking-tight">Data Vault</h1>
+                <p className="mt-1.5 text-muted-foreground">
+                    Your datasets and matching projects
                 </p>
             </div>
 
@@ -260,26 +267,36 @@ export default function DataVault() {
                 </div>
             )}
 
-            <Card className="mb-8">
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <Database className="h-5 w-5" />
-                        Upload New Dataset
-                    </CardTitle>
-                    <CardDescription>
-                        Upload CSV or Parquet files to get started with entity resolution
-                    </CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <Upload onDatasetUploaded={handleDatasetUploaded} />
-                </CardContent>
-            </Card>
+            <div className="mb-10 space-y-4">
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2 text-base">
+                            <Database className="h-4 w-4" />
+                            Upload a dataset
+                        </CardTitle>
+                        <CardDescription>
+                            CSV or Parquet. Entify works out the matching configuration itself.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <Upload ref={uploadRef} onDatasetUploaded={handleDatasetUploaded} />
+                    </CardContent>
+                </Card>
+
+                {/* useSearchParams needs a Suspense boundary during prerender. */}
+                <Suspense fallback={null}>
+                    <SampleDatasetCard
+                        onLoaded={async (file) => {
+                            await uploadRef.current?.upload(file)
+                        }}
+                    />
+                </Suspense>
+            </div>
 
             {projects.length > 0 && (
                 <div className="mb-8">
-                    <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-                        <FolderOpen className="h-5 w-5" />
-                        Your Projects
+                    <h2 className="mb-4 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                        Projects
                     </h2>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {projects.map((project) => (
@@ -312,7 +329,7 @@ export default function DataVault() {
                                                 </DropdownMenuItem>
                                                 <DropdownMenuSeparator />
                                                 <DropdownMenuItem
-                                                    className="text-red-600"
+                                                    className="text-destructive focus:text-destructive"
                                                     onClick={() => {
                                                         setDeleteTarget({ id: project.id, name: project.name, kind: "project" })
                                                         setDeleteDialogOpen(true)
@@ -338,9 +355,8 @@ export default function DataVault() {
 
             {datasets.length > 0 && (
                 <div>
-                    <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-                        <Database className="h-5 w-5" />
-                        Available Datasets
+                    <h2 className="mb-4 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                        Datasets
                     </h2>
                     <div className="grid grid-cols-1 gap-4">
                         {datasets.map((dataset) => (
@@ -387,7 +403,7 @@ export default function DataVault() {
                                                 </DropdownMenuTrigger>
                                                 <DropdownMenuContent align="end">
                                                     <DropdownMenuItem
-                                                        className="text-red-600"
+                                                        className="text-destructive focus:text-destructive"
                                                         onClick={() => {
                                                             setDeleteTarget({ id: dataset.id, name: dataset.name, kind: "dataset" })
                                                             setDeleteDialogOpen(true)
