@@ -232,7 +232,7 @@ export default function HomePage() {
               </h2>
               <ul className="mt-5 space-y-3 text-sm leading-relaxed text-muted-foreground">
                 {[
-                  "Files past roughly 100,000 rows. Matching runs in memory and blocking fails above that",
+                  "Very large files on small machines. Matching is memory-bound, so the ceiling tracks available RAM",
                   "Concurrent runs; one result is held at a time",
                   "Writing back to your CRM, since export is CSV",
                   "Incremental matching as new records arrive",

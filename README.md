@@ -165,11 +165,17 @@ the same tuned configuration:
 | 74,132  | 32.3s |     2.5 GB |
 | 185,487 |  fails |     2.5 GB |
 
-Memory grows faster than row count, and blocked pair generation fails with a
-`SplinkException` somewhere between 74,000 and 185,000 rows. So the honest
-working range today is tens of thousands of rows, not millions. Getting past
-that means a persistent DuckDB file instead of an in-memory database, and
-streaming predictions rather than holding them in a list.
+These are laptop numbers, and the failure is memory-bound rather than
+architectural: DuckDB scales vertically, so a larger machine moves the
+ceiling up. Run this benchmark on your own hardware before assuming the
+figures above apply to it.
+
+Two limits are not fixed by a bigger machine. Memory grows faster than row
+count (3x the rows cost 4x the memory between 25,000 and 74,000), and
+predictions accumulate in a Python list rather than streaming, so peak usage
+tracks result size. Raising the ceiling properly means a persistent DuckDB
+file instead of an in-memory database, and streaming predictions out as they
+are produced.
 
 Blocking matters more than any other single choice: a loose rule set on the
 same data scored 230,785 pairs at precision 0.61, while the tuned rules scored
