@@ -181,12 +181,12 @@ export function ScoreDistribution({ currentThreshold = 0.5 }: ScoreDistributionP
                 </ResponsiveContainer>
 
                 {/* Insights */}
-                <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-950/20 rounded-lg">
+                <div className="mt-4 p-4 bg-muted dark:bg-muted rounded-lg">
                     <div className="flex items-start gap-3">
-                        <TrendingUp className="h-5 w-5 text-blue-600 mt-0.5" />
+                        <TrendingUp className="h-5 w-5 text-foreground mt-0.5" />
                         <div className="text-sm">
-                            <p className="font-medium text-blue-900 dark:text-blue-100 mb-1">💡 Insight</p>
-                            <p className="text-blue-700 dark:text-blue-300">
+                            <p className="font-medium text-foreground dark:text-foreground mb-1">Insight</p>
+                            <p className="text-foreground dark:text-muted-foreground">
                                 {data.statistics.mean > 0.8
                                     ? "High average score indicates strong matching confidence across comparisons."
                                     : data.statistics.mean < 0.3

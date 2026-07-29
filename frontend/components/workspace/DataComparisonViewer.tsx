@@ -215,7 +215,7 @@ export function DataComparisonViewer({
                     </div>
                     <div className="bg-muted/50 rounded-lg p-3">
                         <div className="text-xs text-muted-foreground">Rows Modified</div>
-                        <div className="text-2xl font-bold text-blue-600">{stats.rowsModified}</div>
+                        <div className="text-2xl font-bold text-foreground">{stats.rowsModified}</div>
                     </div>
                     <div className="bg-muted/50 rounded-lg p-3">
                         <div className="text-xs text-muted-foreground">Columns Modified</div>

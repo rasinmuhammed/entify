@@ -43,6 +43,8 @@ import { ComparisonBuilder } from "@/components/ComparisonBuilder"
 import { TrainingPanel } from "@/components/TrainingPanel"
 import { ClusterVisualization } from '@/components/matching/ClusterVisualization'
 import { MatchingInsightsPanel } from '@/components/matching/MatchingInsightsPanel'
+import { Logo } from "@/components/brand/Logo"
+import { useAppUser } from "@/lib/auth"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { DataManager } from "@/components/workspace/DataManager"
@@ -88,6 +90,7 @@ export default function ProjectPage() {
     const { duckDB, isReady } = useWasm()
     const { activeProject, setActiveProject, activeDataset, setActiveDataset } = useDatasetStore()
     const supabase = createClient()
+    const user = useAppUser()
     const [isDeleting, setIsDeleting] = useState(false)
 
     const [loading, setLoading] = useState(true)
@@ -112,6 +115,7 @@ export default function ProjectPage() {
         probability_two_random_records_match: 0.0001
     })
     const [pageError, setPageError] = useState<string | null>(null)
+    const [lockedNotice, setLockedNotice] = useState<string | null>(null)
     const [renameDialogOpen, setRenameDialogOpen] = useState(false)
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
     const [renameValue, setRenameValue] = useState("")
@@ -228,7 +232,7 @@ export default function ProjectPage() {
                 const storageKey = `primary_key_${activeDataset.id}`
                 localStorage.setItem(storageKey, columnName)
             } else {
-                console.log('✅ Primary key saved to database:', columnName)
+                console.log('Primary key saved to database:', columnName)
                 setPageError(null)
             }
 
@@ -255,7 +259,7 @@ export default function ProjectPage() {
                     primary_key_column: columnName
                 })
 
-                console.log('✅ Primary key stored locally:', columnName)
+                console.log('Primary key stored locally:', columnName)
             }
         }
     }
@@ -268,7 +272,7 @@ export default function ProjectPage() {
             const bundle = await loadProjectBundle(supabase, id)
             const { project, dataset } = bundle
 
-            console.log('✅ Project loaded:', project.name)
+            console.log('Project loaded:', project.name)
             setActiveProject(project)
             setRenameValue(project.name)
             setBlockingRules(bundle.blockingRules)
@@ -281,7 +285,7 @@ export default function ProjectPage() {
             setActiveDataset(dataset)
 
             if (!dataset.file_path) {
-                console.error('❌ Dataset missing file_path:', dataset)
+                console.error('Dataset missing file_path:', dataset)
                 setPageError('This dataset is missing its file path. Please re-upload it from the Data Vault.')
             }
             setLoading(false)
@@ -343,14 +347,14 @@ export default function ProjectPage() {
             if (activeDataset.primary_key_column) {
                 setPrimaryKey(activeDataset.primary_key_column)
                 setIsPrimaryKeyConfirmed(true)
-                console.log('✅ Loaded primary key from database:', activeDataset.primary_key_column)
+                console.log('Loaded primary key from database:', activeDataset.primary_key_column)
             } else {
                 const storageKey = `primary_key_${activeDataset.id}`
                 const storedKey = localStorage.getItem(storageKey)
                 if (storedKey) {
                     setPrimaryKey(storedKey)
                     setIsPrimaryKeyConfirmed(true)
-                    console.log('✅ Loaded primary key from localStorage:', storedKey)
+                    console.log('Loaded primary key from localStorage:', storedKey)
                 }
             }
         }
@@ -395,7 +399,7 @@ export default function ProjectPage() {
             if (response.status === 'success') {
                 setResults(response.matches)
                 setActivePhase('results')
-                console.log(`✅ Found ${response.total_pairs} matches in ${response.execution_time_ms}ms`)
+                console.log(` Found ${response.total_pairs} matches in ${response.execution_time_ms}ms`)
             } else {
                 throw new Error(response.error || 'Resolution failed')
             }
@@ -419,26 +423,28 @@ export default function ProjectPage() {
     if (!activeProject) return <div>Project not found</div>
 
     return (
-        <div className="flex h-screen overflow-hidden bg-background text-foreground">
+        <div className="flex min-h-0 flex-1 overflow-hidden bg-background text-foreground">
             {/* Sidebar */}
-            <div className="w-64 border-r border-border bg-card flex flex-col shadow-sm">
+            <div className="flex w-60 shrink-0 flex-col border-r border-border bg-card">
                 {/* Sidebar Header */}
-                <div className="h-14 flex items-center justify-center border-b border-border">
-                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 via-purple-500 to-purple-600 p-1.5 shadow-md">
-                        <svg viewBox="0 0 24 24" fill="none" className="w-full h-full text-white">
-                            <circle cx="7" cy="17" r="3" stroke="currentColor" strokeWidth="2" />
-                            <circle cx="17" cy="7" r="3" stroke="currentColor" strokeWidth="2" />
-                            <path d="M9.5 14.5L14.5 9.5" stroke="currentColor" strokeWidth="2" />
-                        </svg>
-                    </div>
+                <div className="flex h-14 items-center gap-2.5 border-b border-border px-4">
+                    <Logo className="h-[18px] w-[18px]" />
+                    <span className="truncate text-sm font-medium tracking-[-0.01em]">
+                        {activeProject.name}
+                    </span>
                 </div>
 
                 {/* Phase Navigation */}
-                <div className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
-                    <div className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                        Project Phases
+                <div className="flex-1 space-y-0.5 overflow-y-auto p-2">
+                    <div className="px-3 pb-2 pt-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                        Workflow
                     </div>
-                    {PHASES.map((phase) => {
+                    {lockedNotice && (
+                        <p className="mx-1 mb-2 rounded-lg border border-border bg-muted/50 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+                            {lockedNotice}
+                        </p>
+                    )}
+                    {PHASES.map((phase, phaseIndex) => {
                         const Icon = phase.icon
                         const isActive = activePhase === phase.id
                         const status = phaseStatus[phase.id as PhaseId]
@@ -450,55 +456,68 @@ export default function ProjectPage() {
                                 key={phase.id}
                                 onClick={() => {
                                     if (isLocked) {
-                                        // Could show toast notification here
-                                        console.log('Phase locked:', validation.reason)
+                                        // Silently logging this left the user
+                                        // clicking a dead control with no reason.
+                                        setLockedNotice(
+                                            validation.reason ??
+                                            "Finish the earlier steps first."
+                                        )
                                         return
                                     }
+                                    setLockedNotice(null)
                                     setActivePhase(phase.id)
                                 }}
                                 disabled={isLocked}
-                                className={`
-                                    w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all
-                                    ${isActive
-                                        ? 'bg-primary text-primary-foreground shadow-sm'
+                                className={[
+                                    "group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] transition-colors",
+                                    isActive
+                                        ? "bg-secondary font-medium text-secondary-foreground"
                                         : isLocked
-                                            ? 'text-muted-foreground/50 cursor-not-allowed opacity-60'
-                                            : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                                    }
-                                `}
+                                            ? "cursor-not-allowed text-muted-foreground/45"
+                                            : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                                ].join(" ")}
                                 title={isLocked ? validation.reason : undefined}
                             >
-                                <Icon className="w-4 h-4 flex-shrink-0" />
-                                <span className="flex-1 text-left">{phase.label}</span>
+                                {/* The step number carries the sequence; the
+                                    icon alone never said which came first. */}
+                                <span
+                                    className={[
+                                        "flex h-5 w-5 shrink-0 items-center justify-center rounded-md border text-[10px] tabular-nums",
+                                        status?.complete
+                                            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-500"
+                                            : isActive
+                                                ? "border-foreground/20 bg-background"
+                                                : "border-border",
+                                    ].join(" ")}
+                                >
+                                    {status?.complete ? (
+                                        <CheckCircle2 className="h-3 w-3" />
+                                    ) : (
+                                        phaseIndex + 1
+                                    )}
+                                </span>
 
-                                {/* Completion checkmark */}
-                                {status?.complete && !isActive && (
-                                    <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
-                                )}
+                                <Icon className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                                <span className="flex-1 truncate text-left">{phase.label}</span>
 
-                                {/* In progress indicator */}
                                 {isActive && !status?.complete && (
-                                    <div className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0 animate-pulse" />
+                                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/60" />
                                 )}
-
-                                {/* Locked indicator */}
-                                {isLocked && (
-                                    <Lock className="w-3 h-3 flex-shrink-0" />
-                                )}
+                                {isLocked && <Lock className="h-3 w-3 shrink-0" />}
                             </button>
                         )
                     })}
                 </div>
 
                 {/* User Profile */}
-                <div className="p-4 border-t border-border bg-muted/30">
-                    <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-xs font-bold text-white">
-                            MR
+                <div className="border-t border-border p-3">
+                    <div className="flex items-center gap-2.5">
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border bg-secondary text-[11px] font-medium">
+                            {user.name.slice(0, 2).toUpperCase()}
                         </div>
-                        <div className="flex-1 overflow-hidden">
-                            <p className="text-sm font-medium truncate">Muhammed Rasin</p>
-                            <p className="text-xs text-muted-foreground truncate">Admin</p>
+                        <div className="min-w-0 flex-1">
+                            <p className="truncate text-xs font-medium">{user.name}</p>
+                            <p className="truncate text-[11px] text-muted-foreground">{user.email}</p>
                         </div>
                     </div>
                 </div>
@@ -705,7 +724,7 @@ export default function ProjectPage() {
                                                 (!previewData || previewData.length === 0) &&
                                                 dataColumns.length === 0) && (
                                                     <div className="text-sm text-muted-foreground p-4 bg-yellow-50 dark:bg-yellow-950/20 rounded">
-                                                        ⚠️ No columns detected. Please ensure your data is loaded in the Profile phase first.
+                                                         No columns detected. Please ensure your data is loaded in the Profile phase first.
                                                     </div>
                                                 )}
 
@@ -741,7 +760,7 @@ export default function ProjectPage() {
                                             />
                                             {dataColumns.length === 0 && (
                                                 <div className="text-sm text-muted-foreground p-4 bg-yellow-50 dark:bg-yellow-950/20 rounded border border-yellow-500/50">
-                                                    <p className="font-medium mb-2">⚠️ No columns detected</p>
+                                                    <p className="font-medium mb-2">No columns detected</p>
                                                     <p className="text-xs">
                                                         Please ensure your data is loaded in the Profile phase first.
                                                         The columns will automatically appear here once data is loaded.
@@ -786,9 +805,9 @@ export default function ProjectPage() {
                                                 variant="default"
                                             >
                                                 {isProcessing ? (
-                                                    <>🔄 Processing...</>
+                                                    <>Processing...</>
                                                 ) : (
-                                                    <>▶️ Run Pipeline</>
+                                                    <>▶ Run Pipeline</>
                                                 )}
                                             </Button>
                                             <Button onClick={() => setActivePhase('laboratory')} disabled={!modelTrained} variant="outline">
@@ -840,7 +859,7 @@ export default function ProjectPage() {
                                                             const tableName = `${activeDataset.name.replace(/[^a-zA-Z0-9_]/g, '_')}_original`
                                                             const idColumn = primaryKey || 'unique_id'
 
-                                                            console.log('📥 Exporting enriched clusters...')
+                                                            console.log('Exporting enriched clusters...')
 
                                                             const csvData = await fetchApiText('/api/export-clusters', undefined, {
                                                                 table_name: tableName,
@@ -857,7 +876,7 @@ export default function ProjectPage() {
                                                             document.body.removeChild(a)
                                                             URL.revokeObjectURL(url)
 
-                                                            console.log('✅ Enriched clusters exported successfully')
+                                                            console.log('Enriched clusters exported successfully')
                                                         } catch (error) {
                                                             console.error('Export failed:', error)
                                                             setPageError(`Export failed: ${error instanceof Error ? error.message : 'Unknown error'}`)

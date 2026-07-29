@@ -155,14 +155,14 @@ export function DetailedClusterView({
 
                     {/* Waterfall Chart for Selected Link */}
                     {selectedLink && (
-                        <Card className="border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20">
+                        <Card className="border-border dark:border-border bg-muted dark:bg-muted">
                             <CardContent className="p-4">
                                 <div className="flex items-center justify-between mb-3">
                                     <h3 className="font-semibold flex items-center gap-2">
                                         <Badge variant="outline">{selectedLink.source}</Badge>
                                         <span className="text-muted-foreground">vs</span>
                                         <Badge variant="outline">{selectedLink.target}</Badge>
-                                        <Badge className="ml-2 bg-blue-600">
+                                        <Badge className="ml-2 bg-primary">
                                             {(selectedLink.score * 100).toFixed(1)}% Match
                                         </Badge>
                                     </h3>
@@ -197,8 +197,8 @@ export function DetailedClusterView({
 
                             {/* Show cluster_id prominently */}
                             {cluster.cluster_id && (
-                                <div className="mb-3 p-3 bg-purple-50 dark:bg-purple-950/30 rounded-lg">
-                                    <div className="text-sm font-semibold text-purple-600 dark:text-purple-400">
+                                <div className="mb-3 p-3 bg-muted dark:bg-muted rounded-lg">
+                                    <div className="text-sm font-semibold text-foreground dark:text-muted-foreground">
                                         Cluster ID
                                     </div>
                                     <div className="text-xs font-mono mt-1">
@@ -230,9 +230,9 @@ export function DetailedClusterView({
 
                                             {/* Show entity's cluster_id if present */}
                                             {entity.cluster_id && (
-                                                <div className="bg-purple-50 dark:bg-purple-950/30 p-2 rounded text-xs mb-2">
+                                                <div className="bg-muted dark:bg-muted p-2 rounded text-xs mb-2">
                                                     <span className="text-muted-foreground font-medium">cluster_id:</span>
-                                                    <span className="ml-2 font-mono text-purple-600 dark:text-purple-400">
+                                                    <span className="ml-2 font-mono text-foreground dark:text-muted-foreground">
                                                         {entity.cluster_id}
                                                     </span>
                                                 </div>
@@ -243,14 +243,14 @@ export function DetailedClusterView({
                                                     const isIdField = key.toLowerCase().includes('id') || key === '_id'
 
                                                     return (
-                                                        <div key={key} className={`flex justify-between text-xs gap-2 ${isIdField ? 'bg-blue-50 dark:bg-blue-950/30 p-1.5 rounded' : ''
+                                                        <div key={key} className={`flex justify-between text-xs gap-2 ${isIdField ? 'bg-muted dark:bg-muted p-1.5 rounded' : ''
                                                             }`}>
-                                                            <span className={`font-medium ${isIdField ? 'text-blue-600 dark:text-blue-400' : 'text-muted-foreground'
+                                                            <span className={`font-medium ${isIdField ? 'text-foreground dark:text-muted-foreground' : 'text-muted-foreground'
                                                                 }`}>
                                                                 {key}:
                                                             </span>
                                                             <span className={`text-right break-all max-w-[200px] ${isIdField
-                                                                ? 'font-mono text-blue-600 dark:text-blue-400'
+                                                                ? 'font-mono text-foreground dark:text-muted-foreground'
                                                                 : 'font-medium'
                                                                 }`}>
                                                                 {String(value || '-')}

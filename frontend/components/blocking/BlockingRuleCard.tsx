@@ -63,7 +63,7 @@ export function BlockingRuleCard({ rule, index, columns }: BlockingRuleCardProps
                 {rule.parts.map((part, i) => (
                     <div key={part.id} className="flex items-center gap-3">
                         {i > 0 && (
-                            <span className="text-xs font-bold text-purple-400 bg-purple-400/10 px-2 py-1 rounded">
+                            <span className="text-xs font-bold text-muted-foreground bg-primary px-2 py-1 rounded">
                                 AND
                             </span>
                         )}
@@ -80,7 +80,7 @@ export function BlockingRuleCard({ rule, index, columns }: BlockingRuleCardProps
                 <Button
                     variant="ghost"
                     size="sm"
-                    className="h-8 gap-1 rounded-full border border-dashed border-white/20 px-3 text-xs text-muted-foreground hover:border-purple-500 hover:text-purple-400"
+                    className="h-8 gap-1 rounded-full border border-dashed border-white/20 px-3 text-xs text-muted-foreground hover:border-border hover:text-muted-foreground"
                     onClick={() => addPartToRule(rule.id)}
                 >
                     <Plus className="h-3 w-3" />
@@ -156,7 +156,7 @@ function ComparisonPartPill({
             {/* Method Selector */}
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" className="h-7 px-2 text-sm text-purple-300 hover:text-purple-200">
+                    <Button variant="ghost" className="h-7 px-2 text-sm text-muted-foreground hover:text-foreground">
                         {methodLabels[part.method]}
                     </Button>
                 </DropdownMenuTrigger>

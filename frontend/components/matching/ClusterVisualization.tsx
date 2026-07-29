@@ -278,7 +278,7 @@ export function ClusterVisualization({
         })
 
         // Debug logging to track cluster formation
-        console.log('🔍 Cluster Formation Debug:', {
+        console.log('Cluster Formation Debug:', {
             totalMatches: filteredMatches.length,
             totalClusters: clusterArray.length,
             clusterSizes: clusterArray.map(c => c.size),
@@ -331,9 +331,9 @@ export function ClusterVisualization({
 
                 if (columns.includes(primaryKeyColumn)) {
                     idColumn = primaryKeyColumn
-                    console.log(`✅ Using confirmed primary key: ${primaryKeyColumn}`)
+                    console.log(` Using confirmed primary key: ${primaryKeyColumn}`)
                 } else {
-                    console.warn(`⚠️ Confirmed primary key "${primaryKeyColumn}" not found in table, auto-detecting...`)
+                    console.warn(` Confirmed primary key "${primaryKeyColumn}"not found in table, auto-detecting...`)
                 }
             }
 
@@ -563,7 +563,7 @@ export function ClusterVisualization({
                                             {cluster.size} entities
                                         </Badge>
                                         {cluster.cluster_id && (
-                                            <Badge variant="outline" className="font-mono text-xs text-purple-600 dark:text-purple-400">
+                                            <Badge variant="outline" className="font-mono text-xs text-foreground dark:text-muted-foreground">
                                                 {cluster.cluster_id.substring(0, 8)}...
                                             </Badge>
                                         )}

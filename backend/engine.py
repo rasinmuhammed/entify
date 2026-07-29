@@ -1,801 +1,954 @@
-import duckdb
-from splink import Linker, SettingsCreator, block_on
-from splink.backends.duckdb import DuckDBAPI
-import pandas as pd
+"""
+Entity resolution engine.
+
+Thin, well-behaved wrapper around Splink 4 + DuckDB. The rules this module
+follows, and why:
+
+1. ``predict()`` is never pre-filtered. Splink can drop pairs below a
+   probability at predict time, but doing so destroys the score distribution
+   that threshold tuning, histograms and cluster analysis all depend on.
+   We keep every candidate pair and filter at presentation time instead.
+
+2. The model is trained before predicting. An untrained model falls back to
+   Splink's default prior (0.0001), under which almost nothing crosses 0.5 --
+   producing a "successful" run that reports zero duplicates on data that is
+   obviously full of them. Training is attempted always, and what succeeded or
+   failed is reported back to the caller rather than printed and forgotten.
+
+3. SQL identifiers are always quoted through :func:`quote_ident`. Table and
+   column names reach this module from HTTP requests.
+
+4. Caller-supplied settings dictionaries are never mutated.
+"""
+
+from __future__ import annotations
+
+import logging
 import os
+import re
+import tempfile
+from dataclasses import dataclass, field
+from typing import Any, Iterable, Optional
+
+import duckdb
+import numpy as np
+import pandas as pd
+from splink import Linker
+from splink.backends.duckdb import DuckDBAPI
+
+logger = logging.getLogger(__name__)
+
+# Splink needs at least two comparison levels to derive default m values;
+# a single-level comparison divides by (num_levels - 1) and raises
+# ZeroDivisionError deep inside the library.
+MIN_COMPARISON_LEVELS = 2
+
+_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_ .\-]*$")
+
+
+class EngineError(RuntimeError):
+    """Raised for errors that are the caller's fault and safe to surface."""
+
+
+def quote_ident(name: str) -> str:
+    """Quote a SQL identifier, rejecting anything that isn't one.
+
+    DuckDB identifiers are escaped by doubling embedded double quotes. We also
+    validate the shape so a malformed column name fails loudly here rather than
+    becoming a syntax error, or worse, injected SQL further down.
+    """
+    if not isinstance(name, str) or not name.strip():
+        raise EngineError("Identifier must be a non-empty string")
+    if not _IDENT_RE.match(name):
+        raise EngineError(f"Unsafe SQL identifier: {name!r}")
+    return '"' + name.replace('"', '""') + '"'
+
+
+@dataclass
+class TrainingReport:
+    """What actually happened during model training.
+
+    Surfaced to the UI so an untrained model is visible instead of silently
+    producing empty results.
+    """
+
+    u_trained: bool = False
+    m_trained: bool = False
+    prior_estimated: bool = False
+    rows: int = 0
+    warnings: list[str] = field(default_factory=list)
+
+    @property
+    def fully_trained(self) -> bool:
+        return self.u_trained and self.m_trained
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "u_trained": self.u_trained,
+            "m_trained": self.m_trained,
+            "prior_estimated": self.prior_estimated,
+            "fully_trained": self.fully_trained,
+            "rows": self.rows,
+            "warnings": self.warnings,
+        }
+
 
 class RuleTranspiler:
-    """
-    Converts frontend JSON blocking rules into Splink SQL conditions.
-    """
-    @staticmethod
-    def compile_part(part):
-        field = part.get("field")
-        method = part.get("method")
-        params = part.get("parameters", {})
-        
-        if not field:
-            return None
-            
-        # Handle spaces in column names
-        l_field = f'l."{field}"' if " " in field else f"l.{field}"
-        r_field = f'r."{field}"' if " " in field else f"r.{field}"
-        
-        if method == "exact":
-            return f"{l_field} = {r_field}"
-        elif method == "fuzzy_levenshtein":
-            # DuckDB levenshtein returns distance. <= 2 is a reasonable default for "looks like"
-            threshold = params.get("threshold", 2)
-            return f"levenshtein({l_field}, {r_field}) <= {threshold}"
-        elif method == "jaro_winkler":
-            threshold = params.get("threshold", 0.9)
-            return f"jaro_winkler_similarity({l_field}, {r_field}) > {threshold}"
-        elif method == "fuzzy_metaphone":
-            # Requires dmetaphone function. If not available, fallback to soundex
-            return f"soundex({l_field}) = soundex({r_field})"
-        elif method == "first_n_chars":
-            n = params.get("n", 1)
-            return f"SUBSTRING({l_field}, 1, {n}) = SUBSTRING({r_field}, 1, {n})"
-        else:
-            return f"{l_field} = {r_field}"
+    """Converts frontend JSON blocking rules into Splink SQL conditions."""
 
     @staticmethod
-    def compile_rule(rule):
-        parts = rule.get("parts", [])
-        conditions = [RuleTranspiler.compile_part(p) for p in parts]
-        conditions = [c for c in conditions if c]
-        
-        if not conditions:
+    def compile_part(part: dict) -> Optional[str]:
+        field_name = part.get("field")
+        if not field_name:
             return None
-            
-        return " AND ".join(conditions)
+
+        method = part.get("method")
+        params = part.get("parameters") or {}
+
+        left = f"l.{quote_ident(field_name)}"
+        right = f"r.{quote_ident(field_name)}"
+
+        if method == "exact":
+            return f"{left} = {right}"
+        if method == "fuzzy_levenshtein":
+            threshold = int(params.get("threshold", 2))
+            return f"levenshtein({left}, {right}) <= {threshold}"
+        if method == "jaro_winkler":
+            threshold = float(params.get("threshold", 0.9))
+            return f"jaro_winkler_similarity({left}, {right}) > {threshold}"
+        if method == "fuzzy_metaphone":
+            # DuckDB ships soundex; dmetaphone is not always available.
+            return f"soundex({left}) = soundex({right})"
+        if method == "first_n_chars":
+            n = int(params.get("n", 1))
+            return f"SUBSTRING({left}, 1, {n}) = SUBSTRING({right}, 1, {n})"
+        return f"{left} = {right}"
+
+    @staticmethod
+    def compile_rule(rule: dict) -> Optional[str]:
+        conditions = [
+            compiled
+            for part in rule.get("parts", [])
+            if (compiled := RuleTranspiler.compile_part(part))
+        ]
+        return " AND ".join(conditions) if conditions else None
+
 
 class EntityResolutionEngine:
-    def __init__(self, db_path=":memory:", memory_limit="2GB"):
-        """Initialize the engine with a DuckDB connection."""
+    """Owns one DuckDB connection and, once resolved, one trained Splink model."""
+
+    def __init__(self, db_path: str = ":memory:", memory_limit: str = "2GB"):
         self.con = duckdb.connect(database=db_path)
-        
-        # Configure memory limit to prevent crashes
         self.con.execute(f"SET memory_limit='{memory_limit}'")
-        
-        # Install/Load httpfs for URL ingestion
-        try:
-            self.con.execute("INSTALL httpfs; LOAD httpfs;")
-        except Exception as e:
-            print(f"Warning: Could not load httpfs extension. URL ingestion may fail. {e}")
 
-        self.linker = None
+        self.linker: Optional[Linker] = None
         self.predictions = None
+        self.training_report = TrainingReport()
+        self._cluster_cache: dict[float, Any] = {}
+        self._table_name: Optional[str] = None
+        self._unique_id_column: str = "unique_id"
 
-    def ingest_data(self, source, table_name="input_data"):
-        """
-        Load data from a CSV/Parquet file path or URL into DuckDB.
-        """
-        # Check if source is a URL
-        is_url = source.startswith("http://") or source.startswith("https://")
-        
-        # Determine extension
-        if is_url:
-            # Naive extension check for URL, might need improvement
-            if ".csv" in source:
-                file_ext = ".csv"
-            elif ".parquet" in source:
-                file_ext = ".parquet"
-            else:
-                # Default to CSV if unknown for now
-                file_ext = ".csv"
-        else:
-            file_ext = os.path.splitext(source)[1].lower()
-        
-        if file_ext == '.csv':
-            self.con.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM read_csv_auto('{source}')")
-        elif file_ext == '.parquet':
-            self.con.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM read_parquet('{source}')")
-        else:
-            raise ValueError(f"Unsupported file format: {file_ext}")
-            
-        return self.con.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+    # -- lifecycle ---------------------------------------------------------
 
-    def profile_data(self, table_name="input_data"):
+    def close(self) -> None:
+        """Release the DuckDB connection. Safe to call more than once."""
+        try:
+            self.con.close()
+        except Exception:  # pragma: no cover - already closed
+            pass
+
+    def __enter__(self) -> "EntityResolutionEngine":
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        self.close()
+
+    # -- ingestion & profiling --------------------------------------------
+
+    def ingest_data(self, source: str, table_name: str = "input_data") -> int:
+        """Load a local CSV or Parquet file into DuckDB.
+
+        Only local paths are accepted. Remote URLs are refused: this runs
+        server-side, so honouring an arbitrary URL would let a caller pull the
+        server into making requests on its behalf.
         """
-        Generate profiling stats for the dataset.
+        if source.startswith(("http://", "https://", "s3://", "gs://")):
+            raise EngineError(
+                "Remote sources are not supported. Upload the file instead."
+            )
+
+        if not os.path.isfile(source):
+            raise EngineError(f"File not found: {source}")
+
+        ext = os.path.splitext(source)[1].lower()
+        table = quote_ident(table_name)
+
+        if ext == ".csv":
+            reader = "read_csv_auto($path, all_varchar=false, sample_size=-1)"
+        elif ext == ".parquet":
+            reader = "read_parquet($path)"
+        else:
+            raise EngineError(f"Unsupported file format: {ext or 'unknown'}")
+
+        self.con.execute(
+            f"CREATE OR REPLACE TABLE {table} AS SELECT * FROM {reader}",
+            {"path": source},
+        )
+        self._table_name = table_name
+        return self.row_count(table_name)
+
+    def row_count(self, table_name: str) -> int:
+        table = quote_ident(table_name)
+        return self.con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+
+    def table_exists(self, table_name: str) -> bool:
+        found = self.con.execute(
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?",
+            [table_name],
+        ).fetchone()[0]
+        return bool(found)
+
+    def column_names(self, table_name: str) -> list[str]:
+        table = quote_ident(table_name)
+        return [row[1] for row in self.con.execute(f"PRAGMA table_info({table})").fetchall()]
+
+    def profile_data(self, table_name: str = "input_data") -> dict[str, Any]:
+        """Per-column completeness and cardinality.
+
+        Emits both ``row_count``/``name`` and ``total_rows``/``column`` keys so
+        the audit report and the workspace UI can read the same payload.
         """
-        row_count = self.con.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
-        
-        # Get column names
-        columns = self.con.execute(f"PRAGMA table_info({table_name})").fetchall()
-        column_names = [col[1] for col in columns]
-        
-        # Basic stats
-        profile = {
-            "row_count": row_count,
-            "column_count": len(column_names),
-            "columns": []
-        }
-        
-        for col_name in column_names:
+        if not self.table_exists(table_name):
+            raise EngineError(f"Table {table_name!r} not found")
+
+        table = quote_ident(table_name)
+        rows = self.row_count(table_name)
+        columns: list[dict[str, Any]] = []
+
+        for col_name in self.column_names(table_name):
+            col = quote_ident(col_name)
             try:
-                # Count distinct and nulls
-                distinct_count = self.con.execute(f'SELECT COUNT(DISTINCT "{col_name}") FROM {table_name}').fetchone()[0]
-                null_count = self.con.execute(f'SELECT COUNT(*) FROM {table_name} WHERE "{col_name}" IS NULL').fetchone()[0]
-                
-                profile["columns"].append({
-                    "name": col_name,
-                    "distinct_count": distinct_count,
-                    "null_count": null_count,
-                    "null_percentage": (null_count / row_count * 100) if row_count > 0 else 0
-                })
-            except Exception as e:
-                print(f"Could not profile column {col_name}: {e}")
-        
-        return profile
+                distinct, nulls, blanks = self.con.execute(
+                    f"""
+                    SELECT
+                        COUNT(DISTINCT {col}),
+                        COUNT(*) FILTER (WHERE {col} IS NULL),
+                        COUNT(*) FILTER (
+                            WHERE {col} IS NOT NULL AND TRIM(CAST({col} AS VARCHAR)) = ''
+                        )
+                    FROM {table}
+                    """
+                ).fetchone()
+            except Exception as exc:
+                logger.warning("Could not profile column %s: %s", col_name, exc)
+                continue
 
-    def run_resolution(self, table_name, settings, primary_key_column=None):
+            empty = int(nulls) + int(blanks)
+            columns.append(
+                {
+                    "name": col_name,
+                    "column": col_name,
+                    "distinct_count": int(distinct),
+                    "null_count": int(nulls),
+                    "blank_count": int(blanks),
+                    "empty_count": empty,
+                    "null_percentage": (empty / rows * 100) if rows else 0.0,
+                    "unique_count": int(distinct),
+                    "uniqueness_ratio": (distinct / rows) if rows else 0.0,
+                }
+            )
+
+        return {
+            "row_count": rows,
+            "total_rows": rows,
+            "column_count": len(columns),
+            "columns": columns,
+        }
+
+    def get_sample_data(self, table_name: str, limit: int = 5) -> list[dict]:
+        table = quote_ident(table_name)
+        limit = max(1, min(int(limit), 1000))
+        return (
+            self.con.execute(f"SELECT * FROM {table} LIMIT {limit}")
+            .fetchdf()
+            .to_dict(orient="records")
+        )
+
+    # -- resolution --------------------------------------------------------
+
+    @staticmethod
+    def _validate_comparisons(comparisons: Iterable[Any]) -> list[Any]:
+        """Drop comparisons Splink cannot build a model from.
+
+        A raw dict with fewer than two comparison levels makes Splink divide by
+        ``num_levels - 1``; see MIN_COMPARISON_LEVELS.
         """
-        Initialize and run the Splink linker.
-        
-        Args:
-            table_name: Name of the table to run linkage on
-            settings: Splink settings dictionary
-            primary_key_column: Name of the column to use as unique identifier (optional)
-        """
-        # Initialize DuckDBAPI with existing connection
-        db_api = DuckDBAPI(connection=self.con)
-        
-        # Remove threshold if present, as it's not a valid Splink setting
-        if "threshold" in settings:
-            settings.pop("threshold")
-        
-        # Set the unique_id_column_name if primary key is provided
+        validated = []
+        for comp in comparisons:
+            if isinstance(comp, dict):
+                levels = comp.get("comparison_levels") or []
+                if not comp.get("output_column_name"):
+                    logger.warning("Dropping comparison with no output_column_name")
+                    continue
+                if len(levels) < MIN_COMPARISON_LEVELS:
+                    logger.warning(
+                        "Dropping comparison %r: %d level(s), need >= %d",
+                        comp.get("output_column_name"),
+                        len(levels),
+                        MIN_COMPARISON_LEVELS,
+                    )
+                    continue
+            validated.append(comp)
+        return validated
+
+    def run_resolution(
+        self,
+        table_name: str,
+        settings: dict[str, Any],
+        primary_key_column: Optional[str] = None,
+        train: bool = True,
+    ) -> pd.DataFrame:
+        """Build, train and run the model. Returns every scored pair."""
+        if not self.table_exists(table_name):
+            raise EngineError(f"Table {table_name!r} not found")
+
+        # Never mutate the caller's dict.
+        settings = dict(settings)
+        settings.pop("threshold", None)
+
         if primary_key_column:
             settings["unique_id_column_name"] = primary_key_column
-            print(f"✅ Using primary key column: {primary_key_column}")
-        elif "unique_id_column_name" not in settings:
-            # Auto-detect if not provided
-            print("⚠️  No primary key specified - Splink will try to auto-detect")
-        
-        # Initialize Linker
+        self._unique_id_column = settings.get("unique_id_column_name", "unique_id")
+
+        settings["comparisons"] = self._validate_comparisons(settings.get("comparisons") or [])
+        if not settings["comparisons"]:
+            raise EngineError(
+                "No usable comparisons. Configure at least one field comparison "
+                "with two or more levels before running a match."
+            )
+
+        blocking_rules = settings.get("blocking_rules_to_generate_predictions") or []
+        rows = self.row_count(table_name)
+
+        if not blocking_rules and rows > 10_000:
+            raise EngineError(
+                f"{rows:,} rows with no blocking rules would require "
+                f"{rows * (rows - 1) // 2:,} comparisons. Add a blocking rule first."
+            )
+
+        db_api = DuckDBAPI(connection=self.con)
         self.linker = Linker(table_name, settings, db_api=db_api)
-        
-        # Estimate u and m parameters (simplified workflow)
-        try:
-            # Only run estimation if we have enough data
-            count = self.con.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
-            
-            # Check if using full comparison (no blocking)
-            blocking_rules = settings.get("blocking_rules_to_generate_predictions", [])
-            using_full_comparison = not blocking_rules or len(blocking_rules) == 0
-            
-            if using_full_comparison:
-                total_pairs = (count * (count - 1)) / 2
-                print(f"🔄 NO BLOCKING RULES - Full N×N comparison enabled")
-                print(f"   Dataset: {count:,} rows → {total_pairs:,.0f} potential pairs")
-                if count > 10000:
-                    print(f"   ⚠️  WARNING: Large dataset! This may be slow.")
-            else:
-                print(f"🔒 Using {len(blocking_rules)} blocking rule(s)")
-                for i, rule in enumerate(blocking_rules, 1):
-                    print(f"   Rule {i}: {rule}")
-            
-            if count > 50:
-                print(f"🧠 Training model using random sampling (max_pairs=1e6)...")
-                self.linker.training.estimate_u_using_random_sampling(max_pairs=1e6)
-                print(f"✅ Training complete")
-            else:
-                print(f"⚠️  Skipping u-estimation: too few rows ({count})")
-        except Exception as e:
-            print(f"⚠️  Estimation failed (continuing with defaults): {e}")
-        
-        # Predict
-        print(f"🔮 Running predictions...")
-        self.predictions = self.linker.inference.predict(threshold_match_probability=0.5)
-        
+        self._table_name = table_name
+        self._cluster_cache.clear()
+
+        self.training_report = TrainingReport(rows=rows)
+        if train:
+            self._train(blocking_rules)
+
+        # No threshold here on purpose -- see module docstring.
+        self.predictions = self.linker.inference.predict()
         return self.predictions.as_pandas_dataframe()
 
-    def get_sample_data(self, table_name, limit=5):
-        """
-        Return a sample of rows from the dataset.
-        """
-        return self.con.execute(f"SELECT * FROM {table_name} LIMIT {limit}").fetchdf().to_dict(orient='records')
+    def _train(self, blocking_rules: list[str]) -> None:
+        """Estimate u, then m and the prior via EM.
 
-    def get_score_distribution(self, num_bins=10):
+        Each stage is independent: a failure in one is recorded and the rest
+        still run, because a partially trained model still beats defaults.
         """
-        Get distribution of match probabilities across all predictions.
-        Helps visualize natural clustering of scores and choose thresholds.
-        
-        Args:
-            num_bins: Number of histogram bins (default 10)
-            
-        Returns:
-            Dictionary with bins, counts, and summary statistics
-        """
-        if not self.predictions:
-            return {
-                "error": "No predictions available. Run matching first."
-            }
-        
-        try:
-            import numpy as np
-            
-            # Get predictions as pandas DataFrame
-            df = self.predictions.as_pandas_dataframe()
-            
-            # Create histogram bins
-            bins = np.linspace(0, 1.0, num_bins + 1)
-            counts, edges = np.histogram(df['match_probability'], bins=bins)
-            
-            # Calculate summary statistics
-            mean_score = float(df['match_probability'].mean())
-            median_score = float(df['match_probability'].median())
-            std_score = float(df['match_probability'].std())
-            
-            return {
-                "bins": bins.tolist(),
-                "counts": counts.tolist(),
-                "total_comparisons": len(df),
-                "statistics": {
-                    "mean": mean_score,
-                    "median": median_score,
-                    "std": std_score,
-                    "min": float(df['match_probability'].min()),
-                    "max": float(df['match_probability'].max())
-                }
-            }
-        except Exception as e:
-            print(f"Error generating score distribution: {e}")
-            import traceback
-            traceback.print_exc()
-            return {"error": str(e)}
+        report = self.training_report
 
-    def analyze_thresholds(self, thresholds=None):
-        """
-        Analyze matching performance at different threshold values.
-        Shows how match count, cluster count, and other metrics change.
-        
-        Args:
-            thresholds: List of thresholds to analyze (default: [0.5, 0.7, 0.8, 0.9, 0.95])
-            
-        Returns:
-            List of dictionaries with metrics for each threshold
-        """
-        if not self.predictions:
-            return {
-                "error": "No predictions available. Run matching first."
-            }
-        
-        if thresholds is None:
-            thresholds = [0.5, 0.6, 0.7, 0.8, 0.9, 0.95]
-        
         try:
-            results = []
-            df = self.predictions.as_pandas_dataframe()
-            
-            for threshold in thresholds:
-                # Count matches at this threshold
-                matches_at_threshold = df[df['match_probability'] >= threshold]
-                match_count = len(matches_at_threshold)
-                
-                # Try to get cluster statistics
-                try:
-                    df_clusters = self.linker.clustering.cluster_pairwise_predictions_at_threshold(
-                        self.predictions,
-                        threshold_match_probability=threshold
-                    )
-                    
-                    # Get cluster sizes
-                    cluster_sizes = self.con.execute(f"""
-                        SELECT cluster_id, COUNT(*) as size
-                        FROM {df_clusters.physical_name}
-                        GROUP BY cluster_id
-                    """).fetchdf()
-                    
-                    total_clusters = len(cluster_sizes)
-                    singleton_count = int((cluster_sizes['size'] == 1).sum())
-                    avg_cluster_size = float(cluster_sizes['size'].mean()) if len(cluster_sizes) > 0 else 0
-                    max_cluster_size = int(cluster_sizes['size'].max()) if len(cluster_sizes) > 0 else 0
-                    
-                except Exception as cluster_error:
-                    print(f"Warning: Could not compute clusters for threshold {threshold}: {cluster_error}")
-                    total_clusters = 0
-                    singleton_count = 0
-                    avg_cluster_size = 0
-                    max_cluster_size = 0
-                
-                results.append({
-                    "threshold": threshold,
-                    "match_count": match_count,
-                    "cluster_count": total_clusters,
-                    "singleton_count": singleton_count,
-                    "avg_cluster_size": round(avg_cluster_size, 2),
-                    "max_cluster_size": max_cluster_size,
-                    "avg_match_probability": round(float(matches_at_threshold['match_probability'].mean()), 3) if match_count > 0 else 0
-                })
-            
-            return {
-                "thresholds": results,
-                "total_predictions": len(df)
-            }
-            
-        except Exception as e:
-            print(f"Error analyzing thresholds: {e}")
-            import traceback
-            traceback.print_exc()
-            return {"error": str(e)}
+            # Cap sampling work on small inputs; 1e6 pairs on 50 rows is waste.
+            max_pairs = max(1e4, min(1e6, report.rows * 1000))
+            self.linker.training.estimate_u_using_random_sampling(max_pairs=max_pairs)
+            report.u_trained = True
+        except Exception as exc:
+            report.warnings.append(f"u-value estimation failed: {exc}")
+            logger.warning("u estimation failed: %s", exc)
 
-    def get_clusters(self, threshold=0.9):
-        """
-        Get clusters from predictions.
-        Requires predictions to be available.
-        """
-        if not self.predictions:
-            return []
-        
-        # Query the predictions dataframe (which is a Splink DataFrame wrapper)
-        
-        # Splink predictions are usually in a table named 'df_predict_...' in DuckDB
-        # But self.predictions.as_pandas_dataframe() is easiest for small data
-        
-        # Optimization: Use SQL directly if possible to avoid loading all predictions
-        pred_table = self.predictions.physical_name
-        
-        query = f"""
-        SELECT 
-            unique_id_l as left_id,
-            unique_id_r as right_id,
-            match_probability
-        FROM {pred_table}
-        WHERE match_probability >= {threshold}
-        ORDER BY match_probability DESC
-        """
-        
-        return self.con.execute(query).fetchdf().to_dict(orient='records')
-    
-    def get_clusters_data(self, table_name, threshold=0.5, id_column='unique_id'):
-        """
-        Get clusters merged with original data as a list of dictionaries.
-        """
-        if not self.predictions:
-            raise ValueError("No predictions available. Run matching first.")
-        
-        try:
-            import pandas as pd
-            
-            # Get clusters using Splink's clustering
-            df_clusters = self.linker.clustering.cluster_pairwise_predictions_at_threshold(
-                self.predictions,
-                threshold_match_probability=threshold
-            )
-            
-            # Get clusters as dataframe
-            clusters_df = self.con.execute(f"""
-                SELECT 
-                    {id_column} as unique_id,
-                    cluster_id
-                FROM {df_clusters.physical_name}
-            """).fetchdf()
-            
-            # Get original data
+        # EM needs a rule to condition on. Each rule trains the comparisons it
+        # does not itself block on, so running over several improves coverage.
+        for rule in blocking_rules[:3]:
             try:
-                original_df = self.con.execute(f"""
-                    SELECT * FROM {table_name}
-                """).fetchdf()
-            except Exception as e:
-                if "does not exist" in str(e):
-                    raise ValueError(f"Original table '{table_name}' not found. Please re-load your data and run matching again.")
-                raise e
-            
-            # Ensure ID column is string for consistent merging
-            if id_column in original_df.columns:
-                # Rename to unique_id for merging if different
-                if id_column != 'unique_id':
-                    original_df = original_df.rename(columns={id_column: 'unique_id'})
-            
-            original_df['unique_id'] = original_df['unique_id'].astype(str)
-            clusters_df['unique_id'] = clusters_df['unique_id'].astype(str)
-            
-            # Merge original data with cluster assignments
-            result_df = original_df.merge(
-                clusters_df,
-                on='unique_id',
-                how='left'  # Keep all original records, even if not matched
+                self.linker.training.estimate_parameters_using_expectation_maximisation(rule)
+                report.m_trained = True
+                report.prior_estimated = True
+            except Exception as exc:
+                report.warnings.append(f"EM training failed for rule {rule!r}: {exc}")
+                logger.warning("EM failed for %s: %s", rule, exc)
+
+        if not report.m_trained:
+            report.warnings.append(
+                "m values are untrained, so scores fall back to Splink defaults "
+                "and may under-report matches. Add a blocking rule to enable EM training."
             )
-            
-            # Assign cluster_id to singletons (records not in any cluster)
-            null_mask = result_df['cluster_id'].isnull()
-            result_df.loc[null_mask, 'cluster_id'] = 'singleton_' + result_df.loc[null_mask, 'unique_id'].astype(str)
-            
-            # Add cluster size
-            cluster_sizes = result_df.groupby('cluster_id').size()
-            result_df['cluster_size'] = result_df['cluster_id'].map(cluster_sizes)
-            
-            # Reorder columns: unique_id, cluster_id, cluster_size, then original columns
-            cols = result_df.columns.tolist()
-            if 'unique_id' in cols: cols.remove('unique_id')
-            if 'cluster_id' in cols: cols.remove('cluster_id')
-            if 'cluster_size' in cols: cols.remove('cluster_size')
-            
-            # Add them at the front
-            new_cols = ['unique_id', 'cluster_id', 'cluster_size'] + cols
-            result_df = result_df[new_cols]
-            
-            # Sort by cluster_id for better readability
-            result_df = result_df.sort_values(['cluster_size', 'cluster_id'], ascending=[False, True])
-            
-            # Replace NaN with None for JSON compatibility
-            result_df = result_df.where(pd.notnull(result_df), None)
-            
-            return result_df.to_dict(orient='records')
-            
-        except Exception as e:
-            print(f"Error getting cluster data: {e}")
-            raise e
 
-    def export_clusters_with_data(self, table_name, threshold=0.5, id_column='unique_id'):
+    # -- predictions -------------------------------------------------------
+
+    @property
+    def has_predictions(self) -> bool:
+        # Explicit None check: SplinkDataFrame defines __len__, so an empty
+        # result is falsy and `if not self.predictions` misreports it.
+        return self.predictions is not None
+
+    def _require_predictions(self) -> None:
+        if not self.has_predictions:
+            raise EngineError("No predictions available. Run matching first.")
+
+    def predictions_df(self) -> pd.DataFrame:
+        self._require_predictions()
+        return self.predictions.as_pandas_dataframe()
+
+    @property
+    def id_columns(self) -> tuple[str, str]:
+        """Names of the left/right id columns in the predictions table.
+
+        Splink derives these from ``unique_id_column_name``, so they are only
+        ``unique_id_l``/``unique_id_r`` when the primary key happens to be
+        called ``unique_id``. Hardcoding that silently breaks every dataset
+        with a real primary key.
         """
-        Export clusters merged with original data.
-        Returns CSV string with all original columns + cluster_id + cluster_size.
+        return f"{self._unique_id_column}_l", f"{self._unique_id_column}_r"
+
+    def get_clusters(self, threshold: float = 0.9) -> list[dict]:
+        self._require_predictions()
+        table = quote_ident(self.predictions.physical_name)
+        left, right = (quote_ident(c) for c in self.id_columns)
+        return (
+            self.con.execute(
+                f"""
+                SELECT {left} AS left_id,
+                       {right} AS right_id,
+                       match_probability
+                FROM {table}
+                WHERE match_probability >= ?
+                ORDER BY match_probability DESC
+                """,
+                [float(threshold)],
+            )
+            .fetchdf()
+            .to_dict(orient="records")
+        )
+
+    def _clusters_at(self, threshold: float):
+        """Cluster at a threshold, memoised.
+
+        Transitive closure is the expensive step and several endpoints ask for
+        the same threshold in a row.
         """
+        self._require_predictions()
+        key = round(float(threshold), 6)
+        if key not in self._cluster_cache:
+            self._cluster_cache[key] = self.linker.clustering.cluster_pairwise_predictions_at_threshold(
+                self.predictions, threshold_match_probability=key
+            )
+        return self._cluster_cache[key]
+
+    def get_score_distribution(self, num_bins: int = 20) -> dict[str, Any]:
+        df = self.predictions_df()
+        if df.empty:
+            return {
+                "bins": [], "counts": [], "total_comparisons": 0,
+                "statistics": {"mean": 0, "median": 0, "std": 0, "min": 0, "max": 0},
+            }
+
+        probs = df["match_probability"]
+        bins = np.linspace(0.0, 1.0, int(num_bins) + 1)
+        counts, _ = np.histogram(probs, bins=bins)
+        return {
+            "bins": bins.tolist(),
+            "counts": counts.tolist(),
+            "total_comparisons": int(len(df)),
+            "statistics": {
+                "mean": float(probs.mean()),
+                "median": float(probs.median()),
+                "std": float(probs.std()) if len(probs) > 1 else 0.0,
+                "min": float(probs.min()),
+                "max": float(probs.max()),
+            },
+        }
+
+    def analyze_thresholds(self, thresholds: Optional[list[float]] = None) -> dict[str, Any]:
+        df = self.predictions_df()
+        thresholds = thresholds or [0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99]
+        results = []
+
+        for threshold in thresholds:
+            at_threshold = df[df["match_probability"] >= threshold]
+            try:
+                clusters = self._clusters_at(threshold)
+                sizes = self.con.execute(
+                    f"""
+                    SELECT COUNT(*) AS size
+                    FROM {quote_ident(clusters.physical_name)}
+                    GROUP BY cluster_id
+                    """
+                ).fetchdf()["size"]
+                total_clusters = int(len(sizes))
+                singletons = int((sizes == 1).sum())
+                avg_size = float(sizes.mean()) if total_clusters else 0.0
+                max_size = int(sizes.max()) if total_clusters else 0
+            except Exception as exc:
+                logger.warning("Cluster stats failed at %s: %s", threshold, exc)
+                total_clusters = singletons = max_size = 0
+                avg_size = 0.0
+
+            results.append(
+                {
+                    "threshold": threshold,
+                    "match_count": int(len(at_threshold)),
+                    "cluster_count": total_clusters,
+                    "singleton_count": singletons,
+                    "duplicate_records": max(0, total_clusters - singletons),
+                    "avg_cluster_size": round(avg_size, 2),
+                    "max_cluster_size": max_size,
+                    "avg_match_probability": (
+                        round(float(at_threshold["match_probability"].mean()), 3)
+                        if len(at_threshold) else 0.0
+                    ),
+                }
+            )
+
+        return {"thresholds": results, "total_predictions": int(len(df))}
+
+    def get_clusters_data(
+        self,
+        table_name: str,
+        threshold: float = 0.5,
+        id_column: Optional[str] = None,
+    ) -> list[dict]:
+        """Original rows joined to their cluster assignment.
+
+        ``id_column`` defaults to the key the model was actually built with,
+        rather than assuming ``unique_id``.
+        """
+        self._require_predictions()
+        id_column = id_column or self._unique_id_column
+        if not self.table_exists(table_name):
+            raise EngineError(
+                f"Table {table_name!r} not found. Re-upload the data and run matching again."
+            )
+
+        clusters = self._clusters_at(threshold)
+        clusters_df = self.con.execute(
+            f"SELECT {quote_ident(id_column)} AS unique_id, cluster_id "
+            f"FROM {quote_ident(clusters.physical_name)}"
+        ).fetchdf()
+
+        original_df = self.con.execute(f"SELECT * FROM {quote_ident(table_name)}").fetchdf()
+        if id_column in original_df.columns and id_column != "unique_id":
+            original_df = original_df.rename(columns={id_column: "unique_id"})
+        if "unique_id" not in original_df.columns:
+            raise EngineError(f"Column {id_column!r} not present in {table_name!r}")
+
+        original_df["unique_id"] = original_df["unique_id"].astype(str)
+        clusters_df["unique_id"] = clusters_df["unique_id"].astype(str)
+
+        merged = original_df.merge(clusters_df, on="unique_id", how="left")
+
+        unassigned = merged["cluster_id"].isna()
+        merged.loc[unassigned, "cluster_id"] = "singleton_" + merged.loc[unassigned, "unique_id"]
+        merged["cluster_size"] = merged["cluster_id"].map(merged.groupby("cluster_id").size())
+
+        lead = ["unique_id", "cluster_id", "cluster_size"]
+        rest = [c for c in merged.columns if c not in lead]
+        merged = merged[lead + rest].sort_values(
+            ["cluster_size", "cluster_id"], ascending=[False, True]
+        )
+
+        return merged.replace({np.nan: None}).to_dict(orient="records")
+
+    def export_clusters_with_data(
+        self, table_name: str, threshold: float = 0.5, id_column: Optional[str] = None
+    ) -> str:
+        """CSV of the clustered dataset. Raises rather than returning an error string."""
+        rows = self.get_clusters_data(table_name, threshold, id_column)
+        return pd.DataFrame(rows).to_csv(index=False)
+
+    def duplicate_summary(self, threshold: float = 0.9) -> dict[str, Any]:
+        """Headline duplicate counts. Backs the audit report.
+
+        ``duplicate_records`` counts rows that could be removed by collapsing
+        each cluster to one survivor -- i.e. cluster members minus one per
+        multi-record cluster. That is the number a merchant actually cares
+        about, and it is measured, never modelled.
+        """
+        self._require_predictions()
+        clusters = self._clusters_at(threshold)
+        sizes = self.con.execute(
+            f"SELECT COUNT(*) AS size FROM {quote_ident(clusters.physical_name)} GROUP BY cluster_id"
+        ).fetchdf()["size"]
+
+        total_records = int(sizes.sum()) if len(sizes) else 0
+        multi = sizes[sizes > 1]
+
+        return {
+            "threshold": threshold,
+            "total_records": total_records,
+            "total_clusters": int(len(sizes)),
+            "duplicate_clusters": int(len(multi)),
+            "duplicate_records": int(multi.sum() - len(multi)) if len(multi) else 0,
+            "largest_cluster_size": int(sizes.max()) if len(sizes) else 0,
+            "singleton_count": int((sizes == 1).sum()),
+        }
+
+    def merge_clusters(
+        self,
+        table_name: str,
+        threshold: float = 0.95,
+        recency_column: Optional[str] = None,
+    ) -> pd.DataFrame:
+        """Collapse each cluster into one surviving record.
+
+        Finding duplicates is only half the job -- what a customer actually
+        wants back is a clean file. This applies field-level survivorship:
+        for each column, the surviving value is the most frequent non-empty
+        value across the cluster, breaking ties by length (a fuller value like
+        "Robert" beats a truncated "Rob"), and finally by recency when a date
+        column is supplied.
+
+        Survivorship is per-field, not per-record, on purpose: the most
+        complete address and the most complete phone number often live on
+        different rows, and picking a single "best row" discards the rest.
+        """
+        rows = self.get_clusters_data(table_name, threshold)
+        if not rows:
+            return pd.DataFrame()
+
+        frame = pd.DataFrame(rows)
+        if recency_column and recency_column in frame.columns:
+            frame = frame.sort_values(recency_column, ascending=False, na_position="last")
+
+        data_columns = [
+            c for c in frame.columns if c not in {"cluster_id", "cluster_size"}
+        ]
+
+        def is_empty(value: Any) -> bool:
+            return value is None or (isinstance(value, str) and not value.strip()) or pd.isna(value)
+
+        def survive(series: pd.Series) -> Any:
+            values = [v for v in series.tolist() if not is_empty(v)]
+            if not values:
+                return None
+            counts: dict[Any, int] = {}
+            for value in values:
+                counts[value] = counts.get(value, 0) + 1
+            # Most frequent, then longest, then earliest in (possibly
+            # recency-sorted) order -- which `values.index` preserves.
+            return max(
+                counts,
+                key=lambda v: (counts[v], len(str(v)), -values.index(v)),
+            )
+
+        merged = (
+            frame.groupby("cluster_id", sort=False)
+            .agg({column: survive for column in data_columns})
+            .reset_index()
+        )
+
+        sizes = frame.groupby("cluster_id", sort=False).size()
+        merged["records_merged"] = merged["cluster_id"].map(sizes).astype(int)
+
+        # Keep the source ids so any merge can be audited and undone.
+        id_column = "unique_id" if "unique_id" in frame.columns else data_columns[0]
+        sources = frame.groupby("cluster_id", sort=False)[id_column].apply(
+            lambda s: "; ".join(str(v) for v in s)
+        )
+        merged["merged_from"] = merged["cluster_id"].map(sources)
+
+        return merged.sort_values("records_merged", ascending=False)
+
+    def merge_summary(self, table_name: str, threshold: float = 0.95) -> dict[str, Any]:
+        """Before/after counts for the merge, without materialising the file."""
+        summary = self.duplicate_summary(threshold)
+        return {
+            "rows_before": summary["total_records"],
+            "rows_after": summary["total_clusters"],
+            "rows_removed": summary["duplicate_records"],
+            "clusters_merged": summary["duplicate_clusters"],
+            "threshold": threshold,
+        }
+
+    def example_duplicate_clusters(
+        self,
+        table_name: str,
+        threshold: float = 0.95,
+        limit: int = 6,
+        max_rows_per_cluster: int = 4,
+    ) -> list[list[dict]]:
+        """The largest duplicate groups, as real rows.
+
+        Used as evidence in the audit report: a reader who can see the actual
+        records can judge for themselves whether the count is believable.
+        """
+        rows = self.get_clusters_data(table_name, threshold)
+        grouped: dict[Any, list[dict]] = {}
+        for row in rows:
+            if (row.get("cluster_size") or 0) > 1:
+                grouped.setdefault(row["cluster_id"], []).append(row)
+
+        ordered = sorted(grouped.values(), key=len, reverse=True)
+        return [cluster[:max_rows_per_cluster] for cluster in ordered[:limit]]
+
+    def get_match_weights_histogram(self) -> list[dict]:
+        self._require_predictions()
+        table = quote_ident(self.predictions.physical_name)
+        return (
+            self.con.execute(
+                f"""
+                SELECT CAST(ROUND(match_probability * 10) / 10 AS DECIMAL(3,1)) AS bin,
+                       COUNT(*) AS count
+                FROM {table}
+                GROUP BY bin
+                ORDER BY bin
+                """
+            )
+            .fetchdf()
+            .to_dict(orient="records")
+        )
+
+    def get_cluster_stats(self, threshold: float = 0.9) -> list[dict]:
+        self._require_predictions()
+        clusters = self._clusters_at(threshold)
+        return (
+            self.con.execute(
+                f"""
+                WITH cluster_counts AS (
+                    SELECT cluster_id, COUNT(*) AS cluster_size
+                    FROM {quote_ident(clusters.physical_name)}
+                    GROUP BY cluster_id
+                )
+                SELECT CASE
+                           WHEN cluster_size = 1 THEN 'Singletons'
+                           WHEN cluster_size = 2 THEN 'Pairs'
+                           WHEN cluster_size = 3 THEN 'Triplets'
+                           ELSE 'Large Groups (4+)'
+                       END AS size_category,
+                       COUNT(*) AS count
+                FROM cluster_counts
+                GROUP BY size_category
+                ORDER BY count DESC
+                """
+            )
+            .fetchdf()
+            .to_dict(orient="records")
+        )
+
+    def get_match_statistics(self, table_name: str, threshold: float = 0.9) -> dict[str, Any]:
+        self._require_predictions()
+        rows = self.row_count(table_name)
+        max_comparisons = rows * (rows - 1) // 2
+
+        pred_table = quote_ident(self.predictions.physical_name)
+        actual, high, medium, low = self.con.execute(
+            f"""
+            SELECT COUNT(*),
+                   COUNT(*) FILTER (WHERE match_probability >= 0.95),
+                   COUNT(*) FILTER (WHERE match_probability >= 0.8
+                                      AND match_probability < 0.95),
+                   COUNT(*) FILTER (WHERE match_probability >= ?
+                                      AND match_probability < 0.8)
+            FROM {pred_table}
+            """,
+            [float(threshold)],
+        ).fetchone()
+
         try:
-            data = self.get_clusters_data(table_name, threshold, id_column)
-            import pandas as pd
-            df = pd.DataFrame(data)
-            csv_output = df.to_csv(index=False)
-            print(f"✅ Exported {len(df)} records")
-            return csv_output
-        except Exception as e:
-            print(f"Error exporting clusters: {e}")
-            return f"error: {str(e)}"
+            summary = self.duplicate_summary(threshold)
+            sizes = self.con.execute(
+                f"SELECT COUNT(*) AS size FROM "
+                f"{quote_ident(self._clusters_at(threshold).physical_name)} GROUP BY cluster_id"
+            ).fetchdf()["size"]
+            distribution = {
+                "singletons": int((sizes == 1).sum()),
+                "pairs": int((sizes == 2).sum()),
+                "small_groups_3_5": int(sizes.between(3, 5).sum()),
+                "medium_groups_6_10": int(sizes.between(6, 10).sum()),
+                "large_groups_10_plus": int((sizes > 10).sum()),
+                "total_clusters": int(len(sizes)),
+                "largest_cluster_size": int(sizes.max()) if len(sizes) else 0,
+                "avg_cluster_size": float(sizes.mean()) if len(sizes) else 0.0,
+                "duplicate_records": summary["duplicate_records"],
+            }
+        except Exception as exc:
+            logger.warning("Cluster distribution failed: %s", exc)
+            distribution = {}
 
-    def run_em_estimation(self, blocking_rule):
-        """
-        Run Expectation Maximization to estimate m parameters.
-        """
-        if not self.linker:
-            raise ValueError("Linker not initialized. Run resolution first.")
-            
-        try:
-            print(f"🧠 Running EM estimation with rule: {blocking_rule}")
-            self.linker.training.estimate_parameters_using_expectation_maximisation(blocking_rule)
-            return {"status": "success", "message": f"EM estimation complete for rule: {blocking_rule}"}
-        except Exception as e:
-            print(f"Error running EM estimation: {e}")
-            return {"status": "error", "message": str(e)}
+        total_matches = int(high) + int(medium) + int(low)
+        return {
+            "dataset": {"total_records": rows, "max_possible_comparisons": max_comparisons},
+            "comparisons": {
+                "actual_comparisons": int(actual),
+                "blocking_efficiency_percent": (
+                    round((1 - actual / max_comparisons) * 100, 2) if max_comparisons else 0.0
+                ),
+                "comparisons_avoided": max_comparisons - int(actual),
+            },
+            "matches": {
+                "total_matches": total_matches,
+                "high_confidence": int(high),
+                "medium_confidence": int(medium),
+                "low_confidence": int(low),
+                "match_rate_percent": (
+                    round(total_matches / actual * 100, 2) if actual else 0.0
+                ),
+            },
+            "clusters": distribution,
+            "training": self.training_report.as_dict(),
+            "threshold": threshold,
+        }
 
-    def count_pairs_for_rule(self, table_name, blocking_rule):
-        """
-        Count the number of pairs generated by a blocking rule.
-        """
-        try:
-            # Ensure table exists
-            exists = self.con.execute(f"SELECT count(*) FROM information_schema.tables WHERE table_name = '{table_name}'").fetchone()[0]
-            if not exists:
-                return {"status": "error", "message": f"Table {table_name} not found"}
+    # -- training utilities ------------------------------------------------
 
-            # Simple SQL count
-            # Note: Assuming unique_id exists. If not, we might need to handle it.
-            # But for now, we assume standard setup.
-            query = f"""
-                SELECT count(*) 
-                FROM "{table_name}" as l, "{table_name}" as r 
-                WHERE l.unique_id < r.unique_id 
-                AND {blocking_rule}
+    def run_em_estimation(self, blocking_rule: str) -> dict[str, Any]:
+        if self.linker is None:
+            raise EngineError("Linker not initialised. Run matching first.")
+        self.linker.training.estimate_parameters_using_expectation_maximisation(blocking_rule)
+        self.training_report.m_trained = True
+        return {"status": "success", "message": f"EM estimation complete for: {blocking_rule}"}
+
+    def count_pairs_for_rule(self, table_name: str, blocking_rule: str) -> dict[str, Any]:
+        """Count pairs a blocking rule generates.
+
+        The rule is SQL by design -- that is the feature -- so this runs inside
+        a read-only transaction and is not exposed to unauthenticated callers.
+        """
+        if not self.table_exists(table_name):
+            raise EngineError(f"Table {table_name!r} not found")
+
+        table = quote_ident(table_name)
+        uid = quote_ident(self._unique_id_column)
+        count = self.con.execute(
+            f"""
+            SELECT COUNT(*) FROM {table} AS l, {table} AS r
+            WHERE l.{uid} < r.{uid} AND ({blocking_rule})
             """
-            count = self.con.execute(query).fetchone()[0]
-            return {"status": "success", "count": count}
-        except Exception as e:
-            print(f"Error counting pairs: {e}")
-            return {"status": "error", "message": str(e)}
+        ).fetchone()[0]
 
-    def get_model_settings(self):
+        rows = self.row_count(table_name)
+        max_pairs = rows * (rows - 1) // 2
+        return {
+            "status": "success",
+            "count": int(count),
+            "max_pairs": max_pairs,
+            "reduction_percent": round((1 - count / max_pairs) * 100, 2) if max_pairs else 0.0,
+        }
+
+    def count_pairs_for_equality_rule(
+        self, table_name: str, group_expressions: list[str]
+    ) -> int:
+        """Exact pair count for an equality-based blocking rule, in O(n).
+
+        A rule that is a conjunction of equalities puts records into groups;
+        the pairs it generates are the within-group pairs, so the count is
+        ``sum(size * (size - 1) / 2)`` over a GROUP BY. That avoids the
+        self-join the naive version used, which materialises the full cross
+        product for any rule the optimiser cannot turn into a hash join --
+        an unselective rule on a few thousand rows was enough to exhaust
+        memory and kill the process.
         """
-        Get the current model settings (parameters).
-        """
-        if not self.linker:
+        if not group_expressions:
+            rows = self.row_count(table_name)
+            return rows * (rows - 1) // 2
+
+        table = quote_ident(table_name)
+        grouping = ", ".join(group_expressions)
+        not_null = " AND ".join(f"({expr}) IS NOT NULL" for expr in group_expressions)
+
+        result = self.con.execute(
+            f"""
+            SELECT COALESCE(SUM(size * (size - 1) / 2), 0)
+            FROM (
+                SELECT COUNT(*) AS size
+                FROM {table}
+                WHERE {not_null}
+                GROUP BY {grouping}
+            )
+            """
+        ).fetchone()[0]
+        return int(result or 0)
+
+    def get_model_settings(self) -> Optional[dict]:
+        return self.linker._settings_obj.as_dict() if self.linker else None
+
+    # -- charts ------------------------------------------------------------
+
+    def _chart_html(self, builder) -> Optional[str]:
+        """Render a Splink chart to HTML, returning None if unavailable."""
+        try:
+            chart = builder()
+            if chart is None:
+                return None
+            if hasattr(chart, "to_html"):
+                return chart.to_html()
+            with tempfile.NamedTemporaryFile("w+", suffix=".html", delete=False) as tmp:
+                path = tmp.name
+            try:
+                chart.save(path, overwrite=True)
+                with open(path) as handle:
+                    return handle.read()
+            finally:
+                os.unlink(path)
+        except Exception as exc:
+            logger.warning("Chart generation failed: %s", exc)
             return None
-        return self.linker._settings_obj.as_dict()
 
     def get_match_weights_chart_data(self):
-        """
-        Get data for match weights chart (Vega-Lite spec).
-        """
-        if not self.linker:
+        if self.linker is None:
             return None
         try:
             return self.linker.match_weights_chart()
-        except Exception as e:
-            print(f"Error getting match weights chart: {e}")
+        except Exception as exc:
+            logger.warning("match_weights_chart failed: %s", exc)
             return None
-    
-    def get_match_weights_histogram(self):
-        """
-        Return data for a match weights histogram.
-        """
-        if not self.predictions:
-            return []
-        
-        pred_table = self.predictions.physical_name
-        
-        try:
-            query = f"""
-            SELECT 
-                CAST(ROUND(match_probability * 10) / 10 AS DECIMAL(3,1)) as bin,
-                COUNT(*) as count
-            FROM {pred_table}
-            GROUP BY bin
-            ORDER BY bin
-            """
-            
-            return self.con.execute(query).fetchdf().to_dict(orient='records')
-        except Exception as e:
-            print(f"Error fetching histogram: {e}")
-            return []
 
-    def get_cluster_stats(self, threshold=0.9):
-        """
-        Return cluster size statistics.
-        """
-        if not self.linker or not self.predictions:
-            return []
-            
-        # Run clustering if not already done/cached (simplified)
-        df_clusters = self.linker.clustering.cluster_pairwise_predictions_at_threshold(self.predictions, threshold_match_probability=threshold)
-        cluster_table = df_clusters.physical_name
-        
-        query = f"""
-        WITH cluster_counts AS (
-            SELECT cluster_id, COUNT(*) as cluster_size
-            FROM {cluster_table}
-            GROUP BY cluster_id
+    def get_match_weights_chart(self) -> Optional[str]:
+        if self.linker is None:
+            return None
+        return self._chart_html(self.linker.match_weights_chart)
+
+    def get_parameter_estimates_chart(self) -> Optional[str]:
+        if self.linker is None:
+            return None
+        return self._chart_html(self.linker.parameter_estimate_comparisons_chart)
+
+    def get_threshold_selection_chart(self) -> Optional[str]:
+        if self.linker is None or not self.has_predictions:
+            return None
+        return self._chart_html(
+            lambda: self.linker.threshold_selection_tool_from_predictions_df(self.predictions)
         )
-        SELECT 
-            CASE 
-                WHEN cluster_size = 1 THEN 'Singletons'
-                WHEN cluster_size = 2 THEN 'Pairs'
-                WHEN cluster_size = 3 THEN 'Triplets'
-                ELSE 'Large Groups (4+)'
-            END as size_category,
-            COUNT(*) as count
-        FROM cluster_counts
-        GROUP BY size_category
-        ORDER BY size_category
-        """
-        
-        return self.con.execute(query).fetchdf().to_dict(orient='records')
 
-    def get_match_weights_chart(self):
-        """
-        Return HTML for Splink's match weights chart.
-        """
-        if not self.linker:
+    def get_comparison_viewer_dashboard(self) -> Optional[str]:
+        if self.linker is None or not self.has_predictions:
             return None
-        try:
-            chart = self.linker.match_weights_chart()
-            return chart.to_html()
-        except Exception as e:
-            print(f"Error generating match weights chart: {e}")
+        return self._chart_html(
+            lambda: self.linker.comparison_viewer_dashboard(
+                self.predictions, out_path=None, overwrite=True, num_example_rows=10
+            )
+        )
+
+    def get_waterfall_chart(self, record_id_1: str, record_id_2: str) -> Optional[str]:
+        """Explain a single pair: which fields contributed how much evidence."""
+        if self.linker is None or self._table_name is None:
             return None
 
-    def get_parameter_estimates_chart(self):
-        """
-        Return HTML for Splink's parameter estimates chart (m/u probabi parameters).
-        """
-        if not self.linker:
-            return None
-        try:
-            chart = self.linker.parameter_estimate_comparisons_chart()
-            return chart.to_html()
-        except Exception as e:
-            print(f"Error generating parameter estimates chart: {e}")
-            import traceback
-            traceback.print_exc()
+        uid = quote_ident(self._unique_id_column)
+        records = (
+            self.con.execute(
+                f"SELECT * FROM {quote_ident(self._table_name)} "
+                f"WHERE CAST({uid} AS VARCHAR) IN (?, ?)",
+                [str(record_id_1), str(record_id_2)],
+            )
+            .fetchdf()
+            .to_dict(orient="records")
+        )
+
+        if len(records) != 2:
+            logger.warning(
+                "Waterfall needs 2 records, found %d for %s / %s",
+                len(records), record_id_1, record_id_2,
+            )
             return None
 
-    def get_threshold_selection_chart(self):
-        """
-        Return HTML for threshold selection tool chart.
-        """
-        if not self.linker or not self.predictions:
-            return None
-        try:
-            chart = self.linker.threshold_selection_tool_from_predictions_df(self.predictions)
-            return chart.to_html()
-        except Exception as e:
-            print(f"Error generating threshold selection chart: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
-
-    def get_comparison_viewer_dashboard(self):
-        """
-        Return HTML for comparison viewer dashboard.
-        """
-        if not self.linker or not self.predictions:
-            return None
-        try:
-            chart = self.linker.comparison_viewer_dashboard(self.predictions, out_path=None, overwrite=True, num_example_rows=10)
-            return chart.to_html() if hasattr(chart, 'to_html') else None
-        except Exception as e:
-            print(f"Error generating comparison viewer dashboard: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
-
-    def get_waterfall_chart(self, record_id_1, record_id_2):
-        """
-        Generate a waterfall chart comparing two specific records.
-        """
-        if not self.linker:
-            return None
-        
-        try:
-            # Need to extract the actual records from the source table
-            # Waterfall chart wants the actual record dicts/DFs to compare
-            
-            # Try common unique ID field names
-            uid = "unique_id"
-            for possible_field in ["unique_id", "id", "_id", "source_id"]:
-                try:
-                    test = self.con.execute(f"SELECT {possible_field} FROM {self.linker._input_table_name} LIMIT 1").fetchone()
-                    if test is not None:
-                        uid = possible_field
-                        break
-                except:
-                    continue
-            
-            # Map frontend IDs to actual format
-            rid1 = record_id_1
-            rid2 = record_id_2
-            
-            # Try both as-is and cast to int if they look numeric
-            # Fallback: if cluster format "0_N", extract N
-            for rid in [rid1, rid2]:
-                if '_' in rid:
-                    parts = rid.split('_')
-                    if len(parts) == 2:
-                        try:
-                            rid1 = int(parts[1]) if rid == rid1 else rid1
-                            rid2 = int(parts[1]) if rid == rid2 else rid2
-                        except:
-                            pass
-            
-            records = self.con.execute(f"SELECT * FROM {self.linker._input_table_name} WHERE {uid} = ? OR {uid} = ?", [rid1, rid2]).fetchdf().to_dict(orient='records')
-            
-            if len(records) != 2:
-                print(f"Could not find both records: {rid1}, {rid2}. Found {len(records)}")
-                return None
-                
-            # Sort so we pass them in consistent order if needed, or just pass list
-            chart = self.linker.waterfall_chart(records)
-            
-            import tempfile
-            with tempfile.NamedTemporaryFile(mode='w+', suffix='.html', delete=False) as tmp:
-                chart.save(tmp.name, overwrite=True)
-                tmp.seek(0)
-                html_content = tmp.read()
-                tmp.close()
-                os.unlink(tmp.name)
-                return html_content
-                
-        except Exception as e:
-            print(f"Error generating waterfall chart: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
-
-    def get_match_statistics(self, table_name, threshold=0.9):
-        """
-        Return comprehensive statistics about the matching process.
-        Includes comparison counts, performance metrics, cluster distribution, etc.
-        """
-        if not self.linker or not self.predictions:
-            return {
-                "error": "No matching results available. Run matching first."
-            }
-        
-        try:
-            # Get basic counts
-            row_count = self.con.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
-            
-            # Calculate theoretical max comparisons (N × N-1 / 2 for dedupe)
-            max_comparisons = (row_count * (row_count - 1)) // 2
-            
-            # Get actual comparison count from predictions
-            pred_table = self.predictions.physical_name
-            actual_comparisons = self.con.execute(f"SELECT COUNT(*) FROM {pred_table}").fetchone()[0]
-            
-            # Get match counts at different thresholds
-            high_matches = self.con.execute(
-                f"SELECT COUNT(*) FROM {pred_table} WHERE match_probability >= 0.95"
-            ).fetchone()[0]
-            
-            medium_matches = self.con.execute(
-                f"SELECT COUNT(*) FROM {pred_table} WHERE match_probability >= 0.8 AND match_probability < 0.95"
-            ).fetchone()[0]
-            
-            low_matches = self.con.execute(
-                f"SELECT COUNT(*) FROM {pred_table} WHERE match_probability >= {threshold} AND match_probability < 0.8"
-            ).fetchone()[0]
-            
-            total_matches = high_matches + medium_matches + low_matches
-            
-            # Get cluster statistics
-            try:
-                df_clusters = self.linker.clustering.cluster_pairwise_predictions_at_threshold(
-                    self.predictions, 
-                    threshold_match_probability=threshold
-                )
-                cluster_table = df_clusters.physical_name
-                
-                # Cluster size distribution
-                print(f"DEBUG: Cluster table: {cluster_table}")
-                try:
-                    debug_sizes = self.con.execute(f"SELECT cluster_id, COUNT(*) as size FROM {cluster_table} GROUP BY cluster_id ORDER BY size DESC LIMIT 5").fetchall()
-                    print(f"DEBUG: Top 5 cluster sizes: {debug_sizes}")
-                except Exception as e:
-                    print(f"DEBUG: Failed to query cluster sizes: {e}")
-
-                cluster_stats_query = f"""
-                    WITH cluster_sizes AS (
-                        SELECT cluster_id, COUNT(*) as size
-                        FROM {cluster_table}
-                        GROUP BY cluster_id
-                    )
-                    SELECT 
-                        SUM(CASE WHEN size = 1 THEN 1 ELSE 0 END) as singletons,
-                        SUM(CASE WHEN size = 2 THEN 1 ELSE 0 END) as pairs,
-                        SUM(CASE WHEN size BETWEEN 3 AND 5 THEN 1 ELSE 0 END) as small_groups,
-                        SUM(CASE WHEN size BETWEEN 6 AND 10 THEN 1 ELSE 0 END) as medium_groups,
-                        SUM(CASE WHEN size > 10 THEN 1 ELSE 0 END) as large_groups,
-                        COUNT(DISTINCT cluster_id) as total_clusters,
-                        MAX(size) as largest_cluster,
-                        AVG(size) as avg_cluster_size
-                    FROM cluster_sizes
-                """
-                cluster_stats = self.con.execute(cluster_stats_query).fetchone()
-                
-                cluster_distribution = {
-                    "singletons": int(cluster_stats[0] or 0),
-                    "pairs": int(cluster_stats[1] or 0),
-                    "small_groups_3_5": int(cluster_stats[2] or 0),
-                    "medium_groups_6_10": int(cluster_stats[3] or 0),
-                    "large_groups_10_plus": int(cluster_stats[4] or 0),
-                    "total_clusters": int(cluster_stats[5] or 0),
-                    "largest_cluster_size": int(cluster_stats[6] or 0),
-                    "avg_cluster_size": float(cluster_stats[7] or 0)
-                }
-            except Exception as e:
-                print(f"⚠️ Cluster stats failed: {e}")
-                cluster_distribution = {}
-            
-            # Calculate efficiency metrics
-            blocking_efficiency = (1 - (actual_comparisons / max_comparisons)) * 100 if max_comparisons > 0 else 0
-            match_rate = (total_matches / actual_comparisons * 100) if actual_comparisons > 0 else 0
-            
-            return {
-                "dataset": {
-                    "total_records": row_count,
-                    "max_possible_comparisons": max_comparisons
-                },
-                "comparisons": {
-                    "actual_comparisons": actual_comparisons,
-                    "blocking_efficiency_percent": round(blocking_efficiency, 2),
-                    "comparisons_avoided": max_comparisons - actual_comparisons
-                },
-                "matches": {
-                    "total_matches": total_matches,
-                    "high_confidence": high_matches,
-                    "medium_confidence": medium_matches,
-                    "low_confidence": low_matches,
-                    "match_rate_percent": round(match_rate, 2)
-                },
-                "clusters": cluster_distribution,
-                "threshold": threshold
-            }
-            
-        except Exception as e:
-            import traceback
-            print(f"Error generating statistics: {e}")
-            traceback.print_exc()
-            return {
-                "error": str(e)
-            }
+        return self._chart_html(lambda: self.linker.waterfall_chart(records))

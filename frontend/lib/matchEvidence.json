@@ -1,0 +1,272 @@
+{
+ "pairs": [
+  {
+   "prior": -13.29,
+   "leftId": "CUST-001562",
+   "rightId": "CUST-001563",
+   "matchWeight": 41.96,
+   "probability": 1.0,
+   "isTrueMatch": true,
+   "fields": [
+    {
+     "field": "first_name",
+     "left": "Matthew",
+     "right": "Matt",
+     "level": "very similar",
+     "weight": 6.69
+    },
+    {
+     "field": "last_name",
+     "left": "Reddy",
+     "right": "Redyd",
+     "level": "very similar",
+     "weight": 5.36
+    },
+    {
+     "field": "email",
+     "left": "matthew.reddy629@gmail.com",
+     "right": "matthew.reddy629@gmail.com",
+     "level": "exact",
+     "weight": 12.57
+    },
+    {
+     "field": "phone",
+     "left": "+86 175 565 1810",
+     "right": "+86 175 565 1810",
+     "level": "exact",
+     "weight": 12.52
+    },
+    {
+     "field": "address",
+     "left": "884 Bridge Drive",
+     "right": "884 Bridge Drive",
+     "level": "exact",
+     "weight": 12.21
+    },
+    {
+     "field": "city",
+     "left": "Sydney",
+     "right": "Sydney",
+     "level": "similar",
+     "weight": 3.72
+    },
+    {
+     "field": "country",
+     "left": "AU",
+     "right": "AU",
+     "level": "similar",
+     "weight": 2.34
+    },
+    {
+     "field": "signup_date",
+     "left": "2025-05-23",
+     "right": "2025-09-17",
+     "level": "no match",
+     "weight": -0.16
+    }
+   ],
+   "bucket": "strong"
+  },
+  {
+   "prior": -13.3,
+   "leftId": "CUST-001234",
+   "rightId": "CUST-001235",
+   "matchWeight": 9.07,
+   "probability": 0.99814,
+   "isTrueMatch": true,
+   "fields": [
+    {
+     "field": "first_name",
+     "left": "Linda",
+     "right": "Linda",
+     "level": "exact",
+     "weight": 4.73
+    },
+    {
+     "field": "last_name",
+     "left": "Menon",
+     "right": "Menon",
+     "level": "exact",
+     "weight": 4.79
+    },
+    {
+     "field": "email",
+     "left": "linda.menon765@outlook.com",
+     "right": null,
+     "level": "null",
+     "weight": 0.0
+    },
+    {
+     "field": "phone",
+     "left": "+89 231 690 4020",
+     "right": "89-231-690-4020",
+     "level": "very similar",
+     "weight": 6.95
+    },
+    {
+     "field": "address",
+     "left": "834 River Avenue",
+     "right": "834 River Ave",
+     "level": "very similar",
+     "weight": 6.26
+    },
+    {
+     "field": "city",
+     "left": "Kochi",
+     "right": "KOCHI",
+     "level": "no match",
+     "weight": -2.54
+    },
+    {
+     "field": "country",
+     "left": "IN",
+     "right": "IN",
+     "level": "similar",
+     "weight": 2.34
+    },
+    {
+     "field": "signup_date",
+     "left": "2019-11-08",
+     "right": "2020-10-13",
+     "level": "no match",
+     "weight": -0.16
+    }
+   ],
+   "bucket": "moderate"
+  },
+  {
+   "prior": -13.3,
+   "leftId": "CUST-001169",
+   "rightId": "CUST-001969",
+   "matchWeight": -5.44,
+   "probability": 0.02259,
+   "isTrueMatch": false,
+   "fields": [
+    {
+     "field": "first_name",
+     "left": "Ravi",
+     "right": "Ravi",
+     "level": "exact",
+     "weight": 4.73
+    },
+    {
+     "field": "last_name",
+     "left": "Jackson",
+     "right": "Jackson",
+     "level": "exact",
+     "weight": 4.79
+    },
+    {
+     "field": "email",
+     "left": "ravi.jackson431@yahoo.com",
+     "right": "ravi.jackson822@gmail.com",
+     "level": "similar",
+     "weight": -1.71
+    },
+    {
+     "field": "phone",
+     "left": "+35 152 537 9020",
+     "right": "+30 481 900 2667",
+     "level": "similar",
+     "weight": 0.19
+    },
+    {
+     "field": "address",
+     "left": "610 Oak Lane",
+     "right": "722 Oak Lane",
+     "level": "similar",
+     "weight": 0.22
+    },
+    {
+     "field": "city",
+     "left": "Mumbai",
+     "right": "Bangalore",
+     "level": "no match",
+     "weight": -2.54
+    },
+    {
+     "field": "country",
+     "left": "IN",
+     "right": "IN",
+     "level": "similar",
+     "weight": 2.34
+    },
+    {
+     "field": "signup_date",
+     "left": "2025-07-13",
+     "right": "2021-06-22",
+     "level": "no match",
+     "weight": -0.16
+    }
+   ],
+   "bucket": "weak"
+  },
+  {
+   "prior": -13.29,
+   "leftId": "CUST-000722",
+   "rightId": "CUST-000725",
+   "matchWeight": 49.57,
+   "probability": 1.0,
+   "isTrueMatch": true,
+   "fields": [
+    {
+     "field": "first_name",
+     "left": "Priya",
+     "right": "Prita",
+     "level": "very similar",
+     "weight": 6.69
+    },
+    {
+     "field": "last_name",
+     "left": "Jones",
+     "right": "Jones",
+     "level": "exact",
+     "weight": 4.79
+    },
+    {
+     "field": "email",
+     "left": "priya.jones92@outlook.com",
+     "right": "priya.jones92@outlook.com",
+     "level": "exact",
+     "weight": 12.57
+    },
+    {
+     "field": "phone",
+     "left": "+43 896 379 3397",
+     "right": "+43 896 379 3397",
+     "level": "exact",
+     "weight": 12.52
+    },
+    {
+     "field": "address",
+     "left": "890 Market Drive",
+     "right": "890 Market Drive",
+     "level": "exact",
+     "weight": 12.21
+    },
+    {
+     "field": "city",
+     "left": "Austin",
+     "right": "Austin",
+     "level": "similar",
+     "weight": 3.72
+    },
+    {
+     "field": "country",
+     "left": "US",
+     "right": "US",
+     "level": "similar",
+     "weight": 2.34
+    },
+    {
+     "field": "signup_date",
+     "left": "2021-05-01",
+     "right": "2021-05-01",
+     "level": "similar",
+     "weight": 8.02
+    }
+   ],
+   "bucket": "strong"
+  }
+ ]
+}

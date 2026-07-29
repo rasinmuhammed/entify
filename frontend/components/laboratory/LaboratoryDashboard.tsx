@@ -63,15 +63,15 @@ export function LaboratoryDashboard({
             </div>
 
             {/* Info Card */}
-            <Card className="border-dashed border-blue-500/50 bg-blue-50/50 dark:bg-blue-950/20">
+            <Card className="border-dashed border-border bg-muted dark:bg-muted">
                 <CardContent className="pt-6">
                     <div className="flex items-start gap-3">
-                        <AlertCircle className="h-5 w-5 text-blue-600 mt-0.5" />
+                        <AlertCircle className="h-5 w-5 text-foreground mt-0.5" />
                         <div className="flex-1">
-                            <p className="font-medium text-blue-900 dark:text-blue-100 mb-1">
-                                🧪 Optional Advanced Features
+                            <p className="font-medium text-foreground dark:text-foreground mb-1">
+                                 Optional Advanced Features
                             </p>
-                            <p className="text-sm text-blue-700 dark:text-blue-300">
+                            <p className="text-sm text-foreground dark:text-muted-foreground">
                                 This phase provides advanced Splink features for power users. You can skip directly to Results if you're satisfied with the default configuration, or explore these tools to fine-tune your model.
                             </p>
                         </div>

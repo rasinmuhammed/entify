@@ -14,7 +14,7 @@ export function GlassCard({ children, className, hoverEffect = false, ...props }
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
             className={cn(
-                "glass-panel rounded-xl p-6",
+                "rounded-xl border border-border bg-card p-6",
                 hoverEffect && "hover:bg-white/10 transition-colors duration-300",
                 className
             )}

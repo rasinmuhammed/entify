@@ -17,3 +17,22 @@ backend/.env.local
 venv/
 .venv/
 uploads/
+
+# DuckDB working files. These are engine scratch space and a local metadata
+# store; committing them means shipping whatever data was last processed.
+.tmp/
+*.duckdb
+*.duckdb.wal
+
+# Runtime output, not source.
+last_error.log
+output.txt
+audit_report.pdf
+demo_customers.csv
+test_upload.csv
+
+.pytest_cache/
+.DS_Store
+
+frontend/tsconfig.tsbuildinfo
+.claude/

@@ -110,7 +110,7 @@ export function BlockingRuleBuilder({
     return (
         <div className="space-y-6">
             {/* Header */}
-            <Card className="border-purple-500/50 bg-purple-50/50 dark:bg-purple-950/20">
+            <Card className="border-border bg-muted dark:bg-muted">
                 <CardHeader>
                     <div className="flex items-center justify-between">
                         <div>

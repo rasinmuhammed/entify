@@ -61,10 +61,10 @@ export function PrimaryKeySelector({
     const isValid = selectedColumn && selectedColumn.null_percentage === 0
 
     return (
-        <Card className="border-blue-200 dark:border-blue-800">
+        <Card className="border-border dark:border-border">
             <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                    <Key className="h-5 w-5 text-blue-600" />
+                    <Key className="h-5 w-5 text-foreground" />
                     Select Primary Key
                 </CardTitle>
                 <CardDescription>
@@ -144,7 +144,7 @@ export function PrimaryKeySelector({
                     <Button
                         onClick={handleConfirm}
                         disabled={!effectiveSelectedKey}
-                        className="bg-blue-600 hover:bg-blue-700"
+                        className="bg-primary text-primary-foreground hover:bg-primary/90"
                     >
                         <Check className="h-4 w-4 mr-2" />
                         Confirm Primary Key

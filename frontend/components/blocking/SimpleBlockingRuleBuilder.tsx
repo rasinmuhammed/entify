@@ -209,7 +209,7 @@ export function SimpleBlockingRuleBuilder({ columns, onRulesChange, initialRules
 
     return (
         <div className="space-y-6">
-            <Card className="border-purple-500/50 bg-purple-50/50 dark:bg-purple-950/20">
+            <Card className="border-border bg-muted dark:bg-muted">
                 <CardHeader>
                     <div className="flex items-center justify-between">
                         <div>
@@ -229,10 +229,10 @@ export function SimpleBlockingRuleBuilder({ columns, onRulesChange, initialRules
             </Card>
 
             {enabledCount === 0 && (
-                <Card className="border-blue-500/50 bg-blue-50/50 dark:bg-blue-950/20">
+                <Card className="border-border bg-muted dark:bg-muted">
                     <CardContent className="py-4">
                         <div className="flex items-start gap-3">
-                            <Info className="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
+                            <Info className="h-5 w-5 text-muted-foreground flex-shrink-0 mt-0.5" />
                             <div className="space-y-1">
                                 <p className="text-sm font-medium">Enable multiple blocking rules</p>
                                 <p className="text-xs text-muted-foreground">
@@ -263,7 +263,7 @@ export function SimpleBlockingRuleBuilder({ columns, onRulesChange, initialRules
                                                 <CardTitle className="text-sm font-mono">{rule.column}</CardTitle>
                                                 {isId && (
                                                     <Badge variant="outline" className="text-xs bg-yellow-500/10 border-yellow-500/50 text-yellow-700 dark:text-yellow-400">
-                                                        ⚠️ ID Column
+                                                         ID Column
                                                     </Badge>
                                                 )}
                                             </div>
@@ -350,7 +350,7 @@ export function SimpleBlockingRuleBuilder({ columns, onRulesChange, initialRules
                 <Card className="bg-green-50/50 dark:bg-green-950/20 border-green-500/50">
                     <CardContent className="py-4">
                         <div className="space-y-2">
-                            <p className="text-sm font-medium">✅ {enabledCount} blocking {enabledCount === 1 ? 'rule' : 'rules'} configured</p>
+                            <p className="text-sm font-medium">{enabledCount} blocking {enabledCount === 1 ? 'rule': 'rules'} configured</p>
                             <p className="text-xs text-muted-foreground">
                                 Record pairs will be compared if they match ANY of these rules (OR logic).
                                 This creates {enabledCount === 1 ? 'one candidate set' : `${enabledCount} candidate sets`} for comparison.

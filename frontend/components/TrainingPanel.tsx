@@ -32,10 +32,10 @@ export function TrainingPanel({ onTrainingComplete, globalSettings }: TrainingPa
     return (
         <div className="space-y-6">
             {/* Header */}
-            <Card className="border-purple-500/50 bg-purple-50/50 dark:bg-purple-950/20">
+            <Card className="border-border bg-muted dark:bg-muted">
                 <CardHeader>
                     <div className="flex items-center gap-3">
-                        <BrainCircuit className="h-6 w-6 text-purple-600" />
+                        <BrainCircuit className="h-6 w-6 text-foreground" />
                         <div>
                             <CardTitle>Expectation-Maximization (EM) Training</CardTitle>
                             <CardDescription>
@@ -214,7 +214,7 @@ export function TrainingPanel({ onTrainingComplete, globalSettings }: TrainingPa
                                         • Higher value (0.01): Dataset has many duplicates - typical for messy data
                                     </p>
                                     <p className="text-yellow-600 dark:text-yellow-400 mt-2">
-                                        💡 Adjust this in the "Comparisons" phase under Global Settings
+                                         Adjust this in the "Comparisons"phase under Global Settings
                                     </p>
                                 </div>
                             </div>
@@ -261,7 +261,7 @@ export function TrainingPanel({ onTrainingComplete, globalSettings }: TrainingPa
                                     <Card key={idx} className="border-l-4 border-l-blue-500">
                                         <CardContent className="p-4 space-y-2">
                                             <h5 className="font-semibold text-sm flex items-center gap-2">
-                                                <TrendingUp className="h-4 w-4 text-blue-600" />
+                                                <TrendingUp className="h-4 w-4 text-foreground" />
                                                 {item.condition}
                                             </h5>
                                             <div className="text-xs space-y-1">
@@ -358,9 +358,9 @@ export function TrainingPanel({ onTrainingComplete, globalSettings }: TrainingPa
             </Tabs>
 
             {/* Run Info */}
-            <Card className="bg-blue-50/50 dark:bg-blue-950/20 border-blue-500/50">
+            <Card className="bg-muted dark:bg-muted border-border">
                 <CardContent className="p-4 flex items-start gap-3">
-                    <Info className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <Info className="h-5 w-5 text-foreground flex-shrink-0 mt-0.5" />
                     <div className="text-sm space-y-1">
                         <p className="font-semibold">EM Training Runs Automatically</p>
                         <p className="text-muted-foreground text-xs">
@@ -374,7 +374,7 @@ export function TrainingPanel({ onTrainingComplete, globalSettings }: TrainingPa
                             <li>Show results in the Results phase</li>
                         </ol>
                         <p className="text-xs text-muted-foreground pt-2">
-                            💡 View training progress in real-time through backend logs when running the pipeline.
+                             View training progress in real-time through backend logs when running the pipeline.
                         </p>
                     </div>
                 </CardContent>

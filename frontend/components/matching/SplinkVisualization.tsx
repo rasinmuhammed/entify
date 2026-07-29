@@ -127,9 +127,9 @@ export function SplinkVisualization({
         } catch (err: any) {
             // 404s are expected before running matching - use warn instead of error
             if (err.message?.includes('not available') || err.message?.includes('404')) {
-                console.warn(`ℹ️ Chart ${chartKey}:`, err.message)
+                console.warn(`ℹ Chart ${chartKey}:`, err.message)
             } else {
-                console.error(`❌ Chart ${chartKey} error:`, err)
+                console.error(` Chart ${chartKey} error:`, err)
             }
 
             setCharts(prev => ({

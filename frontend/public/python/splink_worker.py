@@ -11,7 +11,7 @@ import asyncio
 from typing import List, Dict, Any
 import re
 
-print("🚀 Entify Matcher Loading (Splink-Compatible)...")
+print("Entify Matcher Loading (Splink-Compatible)...")
 
 
 class SplinkCompatibleMatcher:
@@ -35,12 +35,12 @@ class SplinkCompatibleMatcher:
         self.comparisons = settings.get("comparisons", [])
         self.unique_id_column = settings.get("unique_id_column_name", "id")
         
-        print(f"📋 Loaded {len(self.comparisons)} comparison rules")
-        print(f"🚧 Loaded {len(self.blocking_rules)} blocking rules")
+        print(f"Loaded {len(self.comparisons)} comparison rules")
+        print(f"Loaded {len(self.blocking_rules)} blocking rules")
         
     async def _execute_sql(self, sql: str) -> List[Dict]:
         """Execute SQL via DuckDB-WASM JavaScript bridge"""
-        print(f"📊 Executing SQL... ({len(sql)} chars)")
+        print(f"Executing SQL... ({len(sql)} chars)")
         result_proxy = await js.js_run_query(sql)
         return result_proxy.to_py()
     
@@ -110,7 +110,7 @@ class SplinkCompatibleMatcher:
         Returns:
             List of matched pairs with probabilities
         """
-        print(f"🔍 Starting matching (threshold={threshold})...")
+        print(f"Starting matching (threshold={threshold})...")
         
         # Step 1: Build blocking SQL
         if self.blocking_rules:
@@ -121,7 +121,7 @@ class SplinkCompatibleMatcher:
             blocking_sql = " OR ".join(blocking_conditions)
         else:
             # Default blocking: first letter of name
-            print("⚠️  No blocking rules defined, using default (first letter)")
+            print("No blocking rules defined, using default (first letter)")
             blocking_sql = "substr(CAST(l.name AS VARCHAR), 1, 1) = substr(CAST(r.name AS VARCHAR), 1, 1)"
         
         # Step 2: Build comparison SQL
@@ -176,7 +176,7 @@ class SplinkCompatibleMatcher:
         # Execute
         results = await self._execute_sql(sql)
         
-        print(f"✅ Matching complete: {len(results)} pairs found (threshold={threshold})")
+        print(f"Matching complete: {len(results)} pairs found (threshold={threshold})")
         return results
     
     def export_settings(self) -> str:
@@ -206,7 +206,7 @@ async def run_entity_resolution(
         JSON string with results
     """
     try:
-        print(f"🔍 Entify Entity Resolution")
+        print(f"Entify Entity Resolution")
         print(f"   Table: {table_name}")
         print(f"   Threshold: {threshold}")
         
@@ -227,11 +227,11 @@ async def run_entity_resolution(
             "settings": settings  # Include settings for debugging
         }
         
-        print(f"✅ Entity resolution complete!")
+        print(f"Entity resolution complete!")
         return json.dumps(result)
         
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"Error: {e}")
         import traceback
         traceback.print_exc()
         return json.dumps({
@@ -247,7 +247,7 @@ async def run_splink_match(table_name: str, settings_json: str) -> str:
     return await run_entity_resolution(table_name, settings_json, threshold=0.5)
 
 
-print("✅ Entify Matcher Ready")
+print("Entify Matcher Ready")
 print("   Engine: Splink-Compatible (Pure Python + SQL)")
 print("   Settings: Exportable to real Splink on Databricks")
 

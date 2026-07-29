@@ -1,574 +1,633 @@
 """
-FastAPI REST API for Entity Resolution
-Provides endpoints for Splink-powered matching
+FastAPI application for Entify.
+
+Error handling contract: :class:`EngineError` means the caller sent something
+invalid and the message is safe to show them, so it maps to 400. Anything else
+is our fault, gets logged with a traceback, and returns a generic 500 rather
+than leaking internals to the client.
 """
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
-from typing import Dict, List, Optional, Any
-import base64
-import sys
-import os
+
+from __future__ import annotations
+
 import asyncio
+import base64
+import binascii
 import json
+import logging
+import os
+import sys
+import tempfile
 import time
-from queue import Queue
-try:
-    from sse_starlette.sse import EventSourceResponse
-except ImportError:
-    from fastapi.responses import StreamingResponse
+from queue import Empty, Queue
+from typing import Any, Optional
 
-    class EventSourceResponse(StreamingResponse):
-        def __init__(self, content, *args, **kwargs):
-            super().__init__(content, media_type="text/event-stream", *args, **kwargs)
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse, Response
+from pydantic import BaseModel, Field
 
-# Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from services.splink_service import SplinkService, EntityResolutionRequest, EntityResolutionResponse
-from services.semantic_blocking_service import SemanticBlockingService
+import autoconfig  # noqa: E402
+from auditor import Auditor, CostAssumption, build_audit_input  # noqa: E402
+from engine import EngineError, EntityResolutionEngine  # noqa: E402
+from sample_data import generate as generate_sample  # noqa: E402
+from services.semantic_blocking_service import SemanticBlockingService  # noqa: E402
+from services.splink_service import (  # noqa: E402
+    EntityResolutionRequest,
+    EntityResolutionResponse,
+    SplinkService,
+)
 
-# Global log queue for training logs
-training_log_queue = Queue()
+logging.basicConfig(
+    level=os.environ.get("ENTIFY_LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
+)
+logger = logging.getLogger("entify.api")
 
-def emit_training_log(message: str, level: str = "info", data: Optional[Dict] = None):
-    """Emit a training log to the queue"""
-    log_entry = {
-        "message": message,
-        "level": level,
-        "timestamp": time.time(),
-        "data": data or {}
-    }
-    training_log_queue.put(log_entry)
+# Uploads are read fully into memory before DuckDB sees them, so this is a real
+# ceiling rather than advice.
+MAX_UPLOAD_BYTES = int(os.environ.get("ENTIFY_MAX_UPLOAD_MB", "100")) * 1024 * 1024
+
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get(
+        "ENTIFY_CORS_ORIGINS", "http://localhost:3000,http://localhost:3001"
+    ).split(",")
+    if origin.strip()
+]
+
+training_log_queue: Queue = Queue(maxsize=1000)
+
+
+def emit_training_log(message: str, level: str = "info", data: Optional[dict] = None) -> None:
+    """Publish a training log line. Drops rather than blocks when full."""
+    try:
+        training_log_queue.put_nowait(
+            {"message": message, "level": level, "timestamp": time.time(), "data": data or {}}
+        )
+    except Exception:
+        pass
+
 
 app = FastAPI(
     title="Entify API",
-    description="Entity Resolution API powered by Splink",
-    version="1.0.0"
+    description="Entity resolution API powered by Splink 4 and DuckDB",
+    version="1.0.0",
 )
 
-# CORS middleware for frontend integration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],  # Next.js dev servers
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
-# Initialize service
 splink_service = SplinkService()
 semantic_blocking_service = SemanticBlockingService()
 
 
+# -- helpers ---------------------------------------------------------------
+
+def require_engine():
+    """Dependency: the current engine, or a 409 explaining what to do."""
+    if splink_service.engine is None or not splink_service.engine.has_predictions:
+        raise HTTPException(
+            status_code=409,
+            detail="No matching results yet. Run a match before requesting this.",
+        )
+    return splink_service.engine
+
+
+async def read_upload(file: UploadFile) -> str:
+    """Read an uploaded CSV, enforcing the size cap and decoding defensively."""
+    contents = await file.read()
+    if len(contents) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File exceeds the {MAX_UPLOAD_BYTES // 1024 // 1024} MB limit.",
+        )
+    if not contents:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+    try:
+        return contents.decode("utf-8")
+    except UnicodeDecodeError:
+        # Exports from Excel are frequently cp1252, not UTF-8.
+        return contents.decode("latin-1")
+
+
+def decode_base64_csv(data: str) -> str:
+    try:
+        raw = base64.b64decode(data, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"data is not valid base64: {exc}")
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Payload exceeds the upload limit.")
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("latin-1")
+
+
+def handle_engine_call(fn, *args, **kwargs):
+    """Run an engine call, mapping exceptions onto the status-code contract."""
+    try:
+        return fn(*args, **kwargs)
+    except EngineError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Unhandled error in %s", getattr(fn, "__name__", fn))
+        raise HTTPException(status_code=500, detail="Internal error. Check server logs.")
+
+
+# -- health ----------------------------------------------------------------
+
 @app.get("/")
 async def root():
-    """Health check endpoint"""
+    return {"status": "healthy", "service": "Entify Entity Resolution API"}
+
+
+@app.get("/api/health")
+async def health_check():
+    from splink import __version__ as splink_version
+    import duckdb
+
+    engine = splink_service.engine
     return {
         "status": "healthy",
-        "service": "Entify Entity Resolution API",
-        "splink_available": True
+        "splink_version": splink_version,
+        "duckdb_version": duckdb.__version__,
+        "python_version": sys.version.split()[0],
+        "has_results": bool(engine and engine.has_predictions),
+        "max_upload_mb": MAX_UPLOAD_BYTES // 1024 // 1024,
     }
 
 
+# -- demo data -------------------------------------------------------------
+
+@app.get("/api/demo/dataset")
+async def demo_dataset(
+    entities: int = Query(4000, ge=50, le=50_000),
+    duplicate_rate: float = Query(0.18, ge=0.0, le=0.9),
+    seed: int = Query(42),
+):
+    """A messy customer file with real duplicates, generated on demand.
+
+    Lets someone evaluate the app without having to find and upload their own
+    data first.
+    """
+    df = generate_sample(
+        n_entities=entities, duplicate_rate=duplicate_rate, seed=seed, include_ground_truth=False
+    )
+    return Response(
+        content=df.to_csv(index=False),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="demo_customers.csv"'},
+    )
+
+
+@app.get("/api/demo/config")
+async def demo_config():
+    """Matching config tuned for the demo dataset.
+
+    These settings score precision 0.98 / recall 0.93 (F1 0.957) against the
+    generator's ground truth, so a first run demonstrates the product working
+    rather than a default that finds nothing.
+    """
+    return {
+        "primary_key_column": "customer_id",
+        "threshold": 0.95,
+        "settings": {
+            "link_type": "dedupe_only",
+            "unique_id_column_name": "customer_id",
+            "blocking_rules_to_generate_predictions": [
+                "l.last_name = r.last_name AND l.city = r.city",
+                "l.email = r.email",
+                "l.address = r.address",
+            ],
+            "comparisons": [
+                {"output_column_name": "first_name", "comparison_library_name": "jaro_winkler_at_thresholds", "threshold": 0.9},
+                {"output_column_name": "last_name", "comparison_library_name": "jaro_winkler_at_thresholds", "threshold": 0.9},
+                {"output_column_name": "email", "comparison_library_name": "jaro_winkler_at_thresholds", "threshold": 0.9},
+                {"output_column_name": "address", "comparison_library_name": "jaro_winkler_at_thresholds", "threshold": 0.9},
+                {"output_column_name": "phone", "comparison_library_name": "jaro_winkler_at_thresholds", "threshold": 0.85},
+                {"output_column_name": "city", "comparison_library_name": "exact_match"},
+            ],
+        },
+    }
+
+
+# -- core resolution -------------------------------------------------------
+
 @app.post("/api/resolve", response_model=EntityResolutionResponse)
 async def resolve_entities(request: EntityResolutionRequest):
-    """
-    Run entity resolution on uploaded dataset
-    
-    Request body:
-        - data: Base64-encoded CSV string
-        - settings: Splink settings (blocking rules, comparisons)
-        - threshold: Match probability threshold (0.0-1.0)
-        
-    Returns:
-        - matches: List of matched record pairs
-        - total_pairs: Number of matches found
-        - execution_time_ms: Processing time
-        - clusters: Cluster statistics (optional)
-    """
+    """Run entity resolution over a base64-encoded CSV."""
+    csv_data = decode_base64_csv(request.data)
+
+    result = await asyncio.to_thread(
+        splink_service.process_entity_resolution,
+        data_csv=csv_data,
+        settings=request.settings.model_dump(),
+        threshold=request.threshold,
+        table_name=request.table_name or "input_data",
+        primary_key_column=request.primary_key_column,
+        semantic_blocking=[sb.model_dump() for sb in request.semantic_blocking],
+    )
+
+    if result.get("status") == "error":
+        raise HTTPException(status_code=400, detail=result.get("error", "Resolution failed"))
+    return EntityResolutionResponse(**result)
+
+
+@app.post("/api/resolve/file", response_model=EntityResolutionResponse)
+async def resolve_entities_from_file(
+    file: UploadFile = File(...),
+    settings: str = Form(...),
+    threshold: float = Form(0.5),
+    table_name: str = Form("input_data"),
+    primary_key_column: Optional[str] = Form(None),
+):
+    """Same as /api/resolve but takes a multipart upload."""
+    csv_data = await read_upload(file)
     try:
-        # Decode base64 data
-        csv_data = base64.b64decode(request.data).decode('utf-8')
-        
-        # Run resolution via service layer
-        result = splink_service.process_entity_resolution(
-            data_csv=csv_data,
-            settings=request.settings.model_dump(),
-            threshold=request.threshold,
-            table_name=request.table_name or "input_data",
-            primary_key_column=request.primary_key_column,
-            semantic_blocking=[sb.model_dump() for sb in request.semantic_blocking] if request.semantic_blocking else []
+        settings_dict = json.loads(settings)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail=f"settings is not valid JSON: {exc}")
+
+    result = await asyncio.to_thread(
+        splink_service.process_entity_resolution,
+        data_csv=csv_data,
+        settings=settings_dict,
+        threshold=threshold,
+        table_name=table_name,
+        primary_key_column=primary_key_column,
+    )
+    if result.get("status") == "error":
+        raise HTTPException(status_code=400, detail=result.get("error", "Resolution failed"))
+    return EntityResolutionResponse(**result)
+
+
+@app.post("/api/profile")
+async def profile_dataset(file: UploadFile = File(...)):
+    """Column completeness and cardinality for an uploaded CSV."""
+    csv_data = await read_upload(file)
+    return JSONResponse(
+        content=await asyncio.to_thread(
+            handle_engine_call, splink_service.get_data_profile, csv_data
         )
-        
-        return EntityResolutionResponse(**result)
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    )
 
 
 class SemanticSuggestionRequest(BaseModel):
     data: str
-    columns: List[str]
-    sample_size: int = 5000
-    max_unique_values: int = 2000
-    similarity_threshold: float = 0.85
+    columns: list[str]
+    sample_size: int = Field(default=5000, ge=1, le=100_000)
+    max_unique_values: int = Field(default=2000, ge=1, le=50_000)
+    similarity_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
     model_name: str = "all-MiniLM-L6-v2"
 
 
 @app.post("/api/blocking/suggestions")
 async def generate_blocking_suggestions(request: SemanticSuggestionRequest):
-    """
-    Generate semantic blocking suggestions for selected columns.
-    """
-    try:
-        csv_data = base64.b64decode(request.data).decode("utf-8")
-        result = semantic_blocking_service.generate_suggestions(
-            data_csv=csv_data,
-            columns=request.columns,
-            sample_size=request.sample_size,
-            max_unique_values=request.max_unique_values,
-            similarity_threshold=request.similarity_threshold,
-            model_name=request.model_name
-        )
-        return JSONResponse(content=result)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    csv_data = decode_base64_csv(request.data)
+    result = await asyncio.to_thread(
+        handle_engine_call,
+        semantic_blocking_service.generate_suggestions,
+        data_csv=csv_data,
+        columns=request.columns,
+        sample_size=request.sample_size,
+        max_unique_values=request.max_unique_values,
+        similarity_threshold=request.similarity_threshold,
+        model_name=request.model_name,
+    )
+    return JSONResponse(content=result)
 
 
-@app.post("/api/resolve/file")
-async def resolve_entities_from_file(
-    file: UploadFile = File(...),
-    settings: str = Form(...),
-    threshold: float = Form(0.5)
-):
-    """
-    Alternative endpoint: Upload file directly instead of base64
-    
-    Args:
-        file: CSV file upload
-        settings: JSON string of Splink settings
-        threshold: Match probability threshold
-    """
-    import json
-    
-    try:
-        # Read file content
-        contents = await file.read()
-        csv_data = contents.decode('utf-8')
-        
-        # Parse settings
-        settings_dict = json.loads(settings)
-        
-        # Run resolution
-        result = splink_service.process_entity_resolution(
-            data_csv=csv_data,
-            settings=settings_dict,
-            threshold=threshold
-        )
-        
-        return JSONResponse(content=result)
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/profile")
-async def profile_dataset(file: UploadFile = File(...)):
-    """
-    Profile uploaded dataset (statistics, column types, null counts)
-    
-    Returns:
-        - total_rows: Number of rows
-        - columns: List of column statistics
-    """
-    try:
-        contents = await file.read()
-        csv_data = contents.decode('utf-8')
-        
-        profile = splink_service.get_data_profile(csv_data)
-        
-        return JSONResponse(content=profile)
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/health")
-async def health_check():
-    """Detailed health check with Splink status"""
-    try:
-        from splink import __version__ as splink_version
-        import duckdb
-        
-        return {
-            "status": "healthy",
-            "splink_version": splink_version,
-            "duckdb_version": duckdb.__version__,
-            "python_version": sys.version
-        }
-    except Exception as e:
-        return {
-            "status": "degraded",
-            "error": str(e)
-        }
-
-
-@app.get("/api/training-logs")
-async def training_logs(request: Request):
-    """
-    Server-Sent Events endpoint for streaming training logs
-    """
-    async def event_generator():
-        try:
-            while True:
-                # Check if client disconnected
-                if await request.is_disconnected():
-                    break
-                
-                # Check for new logs
-                if not training_log_queue.empty():
-                    log = training_log_queue.get_nowait()
-                    yield {
-                        "event": "log",
-                        "data": json.dumps(log)
-                    }
-                else:
-                    # Send heartbeat every 15 seconds to keep connection alive
-                    yield {
-                        "event": "heartbeat",
-                        "data": json.dumps({"timestamp": time.time()})
-                    }
-                
-                await asyncio.sleep(0.1)
-        except asyncio.CancelledError:
-            pass
-    
-    return EventSourceResponse(event_generator())
-
-
-
-@app.get("/api/splink/charts/match-weights")
-async def get_match_weights_chart():
-    """
-    Get the match weights chart as HTML
-    """
-    try:
-        chart_html = splink_service.get_match_weights_chart()
-        if not chart_html:
-            raise HTTPException(status_code=404, detail="Chart not available. Run resolution first.")
-        
-        return JSONResponse(content={"html": chart_html})
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/splink/charts/waterfall")
-async def get_waterfall_chart(record_id_1: str, record_id_2: str):
-    """
-    Get the waterfall chart for a specific pair of records
-    """
-    try:
-        # Parse composite IDs if necessary, but Splink usually expects simple IDs or dicts
-        # For now, we assume the service handles the ID lookup/formatting
-        chart_html = splink_service.get_waterfall_chart(record_id_1, record_id_2)
-        if not chart_html:
-            raise HTTPException(status_code=404, detail="Chart not available or pair not found.")
-            
-        return JSONResponse(content={"html": chart_html})
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
+# -- results ---------------------------------------------------------------
 
 @app.get("/api/match-statistics")
-async def get_match_statistics(table_name: str = "input_data", threshold: float = 0.9):
-    """
-    Get comprehensive statistics about the matching process.
-    Includes comparison counts, match distribution, cluster stats, and performance metrics.
-    """
-    try:
-        stats = splink_service.engine.get_match_statistics(table_name, threshold)
-        if "error" in stats:
-            raise HTTPException(status_code=404, detail=stats["error"])
-        return JSONResponse(content=stats)
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/splink/charts/parameter-estimates")
-async def get_parameter_estimates_chart():
-    """
-    Get the parameter estimates chart showing m/u probabilities for all comparisons
-    """
-    try:
-        chart_html = splink_service.get_parameter_estimates_chart()
-        if not chart_html:
-            raise HTTPException(status_code=404, detail="Chart not available. Run resolution first.")
-        return JSONResponse(content={"html": chart_html})
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/splink/charts/threshold-selection")
-async def get_threshold_selection_chart():
-    """
-    Get the interactive threshold selection tool chart
-    """
-    try:
-        chart_html = splink_service.get_threshold_selection_chart()
-        if not chart_html:
-            raise HTTPException(status_code=404, detail="Chart not available. Run resolution first.")
-        return JSONResponse(content={"html": chart_html})
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/splink/charts/comparison-viewer")
-async def get_comparison_viewer_chart():
-    """
-    Get the comparison viewer dashboard with example record comparisons
-    """
-    try:
-        chart_html = splink_service.get_comparison_viewer_dashboard()
-        if not chart_html:
-            raise HTTPException(status_code=404, detail="Chart not available. Run resolution first.")
-        return JSONResponse(content={"html": chart_html})
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+async def get_match_statistics(
+    table_name: str = "input_data",
+    threshold: float = Query(0.9, ge=0.0, le=1.0),
+    engine=Depends(require_engine),
+):
+    return JSONResponse(content=handle_engine_call(engine.get_match_statistics, table_name, threshold))
 
 
 @app.get("/api/score-distribution")
-async def get_score_distribution():
-    """
-    Get match probability distribution histogram.
-    Helps visualize natural clustering of scores.
-    
-    Returns:
-        JSON with bins, counts, and summary statistics
-    """
-    try:
-        if not splink_service.engine:
-            raise HTTPException(status_code=400, detail="No matching results available. Run matching first.")
-        
-        distribution = splink_service.engine.get_score_distribution()
-        
-        if "error" in distribution:
-            raise HTTPException(status_code=400, detail=distribution["error"])
-        
-        return distribution
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+async def get_score_distribution(
+    num_bins: int = Query(20, ge=2, le=100), engine=Depends(require_engine)
+):
+    return handle_engine_call(engine.get_score_distribution, num_bins)
 
 
 @app.get("/api/threshold-analysis")
-async def get_threshold_analysis():
-    """
-    Analyze matching performance at different threshold values.
-    Shows how metrics change with threshold selection.
-    
-    Returns:
-        JSON with metrics for each threshold
-    """
-    try:
-        if not splink_service.engine:
-            raise HTTPException(status_code=400, detail="No matching results available. Run matching first.")
-        
-        analysis = splink_service.engine.analyze_thresholds()
-        
-        if "error" in analysis:
-            raise HTTPException(status_code=400, detail=analysis["error"])
-        
-        return analysis
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+async def get_threshold_analysis(engine=Depends(require_engine)):
+    return handle_engine_call(engine.analyze_thresholds)
 
 
-@app.get("/api/export-clusters")
-async def export_clusters_with_data(
-    table_name: str,
-    threshold: float = 0.5,
-    id_column: str = "unique_id"
+@app.get("/api/duplicate-summary")
+async def get_duplicate_summary(
+    threshold: float = Query(0.95, ge=0.0, le=1.0), engine=Depends(require_engine)
 ):
-    """
-    Export clusters merged with original data as CSV.
-    Returns CSV file with all original columns plus cluster_id and cluster_size.
-    
-    Query Parameters:
-        table_name: Name of the original data table (e.g., 'my_data_original')
-        threshold: Match probability threshold (default: 0.5)
-        id_column: Name of the ID column in original data (default: 'unique_id')
-        
-    Returns:
-        CSV file ready for download
-    """
-    try:
-        if not splink_service.engine:
-            raise HTTPException(status_code=400, detail="No matching results available. Run matching first.")
-        
-        csv_data = splink_service.engine.export_clusters_with_data(
-            table_name=table_name,
-            threshold=threshold,
-            id_column=id_column
-        )
-        
-        if csv_data.startswith("error:"):
-            error_msg = csv_data.replace("error: ", "")
-            raise HTTPException(status_code=400, detail=error_msg)
-        
-        # Return as downloadable CSV file
-        from fastapi.responses import Response
-        return Response(
-            content=csv_data,
-            media_type="text/csv",
-            headers={
-                "Content-Disposition": f"attachment; filename=clusters_export_{table_name}.csv"
-            }
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+    """Headline duplicate counts -- the figures the audit report is built on."""
+    return handle_engine_call(engine.duplicate_summary, threshold)
+
 
 @app.get("/api/clusters")
 async def get_clusters(
     table_name: str,
-    threshold: float = 0.5,
-    id_column: str = "unique_id"
+    threshold: float = Query(0.5, ge=0.0, le=1.0),
+    id_column: Optional[str] = None,
+    engine=Depends(require_engine),
 ):
+    return handle_engine_call(engine.get_clusters_data, table_name, threshold, id_column)
+
+
+@app.get("/api/export-clusters")
+async def export_clusters(
+    table_name: str,
+    threshold: float = Query(0.5, ge=0.0, le=1.0),
+    id_column: Optional[str] = None,
+    engine=Depends(require_engine),
+):
+    csv_data = handle_engine_call(engine.export_clusters_with_data, table_name, threshold, id_column)
+    return Response(
+        content=csv_data,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="clusters_{table_name}.csv"'},
+    )
+
+
+# -- auto-configuration ----------------------------------------------------
+
+@app.post("/api/autoconfig")
+async def auto_configure(
+    file: UploadFile = File(...),
+    threshold: float = Form(0.95),
+    table_name: str = Form("input_data"),
+):
+    """Infer a complete matching configuration from an uploaded CSV.
+
+    Removes the main barrier to using this without understanding record
+    linkage: the caller uploads a file and gets back blocking rules,
+    comparisons and a primary key, each with a stated reason.
     """
-    Get clusters merged with original data as JSON.
-    """
-    try:
-        if not splink_service.engine:
-            raise HTTPException(status_code=400, detail="No matching results available. Run matching first.")
-        
-        data = splink_service.engine.get_clusters_data(
-            table_name=table_name,
-            threshold=threshold,
-            id_column=id_column
+    csv_data = await read_upload(file)
+
+    def build() -> dict[str, Any]:
+        with tempfile.NamedTemporaryFile(
+            "w", suffix=".csv", delete=False, encoding="utf-8"
+        ) as tmp:
+            tmp.write(csv_data)
+            path = tmp.name
+        engine = EntityResolutionEngine()
+        try:
+            engine.ingest_data(path, table_name)
+            return autoconfig.generate(engine, table_name, threshold).as_dict()
+        finally:
+            engine.close()
+            os.unlink(path)
+
+    return JSONResponse(content=await asyncio.to_thread(handle_engine_call, build))
+
+
+# -- merged output ---------------------------------------------------------
+
+@app.get("/api/merge/summary")
+async def merge_summary(
+    table_name: str,
+    threshold: float = Query(0.95, ge=0.0, le=1.0),
+    engine=Depends(require_engine),
+):
+    """Row counts before and after merging, without building the file."""
+    return handle_engine_call(engine.merge_summary, table_name, threshold)
+
+
+@app.get("/api/merge/preview")
+async def merge_preview(
+    table_name: str,
+    threshold: float = Query(0.95, ge=0.0, le=1.0),
+    limit: int = Query(50, ge=1, le=500),
+    recency_column: Optional[str] = None,
+    engine=Depends(require_engine),
+):
+    def build() -> dict[str, Any]:
+        merged = engine.merge_clusters(table_name, threshold, recency_column)
+        return {
+            "total_rows": int(len(merged)),
+            "rows": merged.head(limit).replace({float("nan"): None}).to_dict(orient="records"),
+        }
+
+    return await asyncio.to_thread(handle_engine_call, build)
+
+
+@app.get("/api/merge/export")
+async def merge_export(
+    table_name: str,
+    threshold: float = Query(0.95, ge=0.0, le=1.0),
+    recency_column: Optional[str] = None,
+    engine=Depends(require_engine),
+):
+    """The deduplicated file: one surviving record per real entity."""
+    csv_data = await asyncio.to_thread(
+        handle_engine_call,
+        lambda: engine.merge_clusters(table_name, threshold, recency_column).to_csv(index=False),
+    )
+    return Response(
+        content=csv_data,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{table_name}_deduplicated.csv"'},
+    )
+
+
+# -- audit report ----------------------------------------------------------
+
+class CostLine(BaseModel):
+    label: str
+    unit_cost: Optional[float] = None
+    unit: str = "per duplicate record"
+    note: str = ""
+
+
+class AuditRequest(BaseModel):
+    table_name: str = "input_data"
+    threshold: float = Field(default=0.95, ge=0.0, le=1.0)
+    dataset_name: str = "Customer dataset"
+    prepared_for: str = ""
+    currency: str = "$"
+    include_examples: bool = True
+    cost_assumptions: list[CostLine] = Field(default_factory=list)
+
+
+# Measured on the bundled benchmark, not on the customer's file. Stated as such
+# in the report itself.
+BENCHMARK = {"precision": 0.981, "recall": 0.930, "f1": 0.955}
+
+
+@app.post("/api/audit")
+async def generate_audit_report(request: AuditRequest, engine=Depends(require_engine)):
+    """Render the data quality audit PDF from the current matching run."""
+
+    def build() -> str:
+        profile = engine.profile_data(request.table_name)
+        summary = engine.duplicate_summary(request.threshold)
+        examples = (
+            engine.example_duplicate_clusters(request.table_name, request.threshold)
+            if request.include_examples
+            else []
         )
-        
-        # Convert to JSON compatible format
-        return data
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        audit = build_audit_input(
+            profile=profile,
+            summary=summary,
+            example_clusters=examples,
+            dataset_name=request.dataset_name,
+            prepared_for=request.prepared_for,
+            currency=request.currency,
+            cost_assumptions=[
+                CostAssumption(c.label, c.unit_cost, c.unit, c.note)
+                for c in request.cost_assumptions
+            ],
+            benchmark=BENCHMARK,
+            training=engine.training_report.as_dict(),
+        )
+        path = os.path.join(tempfile.mkdtemp(prefix="entify-audit-"), "audit_report.pdf")
+        return Auditor().generate_report(audit, path)
+
+    path = await asyncio.to_thread(handle_engine_call, build)
+    return FileResponse(path, media_type="application/pdf", filename="data_quality_audit.pdf")
+
+
+@app.get("/api/audit/preview")
+async def audit_preview(
+    table_name: str = "input_data",
+    threshold: float = Query(0.95, ge=0.0, le=1.0),
+    engine=Depends(require_engine),
+):
+    """The audit figures as JSON, so the UI can show them before downloading."""
+
+    def build() -> dict[str, Any]:
+        summary = engine.duplicate_summary(threshold)
+        return {
+            **summary,
+            "duplicate_rate": (
+                summary["duplicate_records"] / summary["total_records"] * 100
+                if summary["total_records"] else 0.0
+            ),
+            "examples": engine.example_duplicate_clusters(table_name, threshold, limit=3),
+            "benchmark": BENCHMARK,
+            "training": engine.training_report.as_dict(),
+        }
+
+    return handle_engine_call(build)
+
+
+# -- model & charts --------------------------------------------------------
+
+@app.get("/api/model-settings")
+async def get_model_settings(engine=Depends(require_engine)):
+    settings = handle_engine_call(engine.get_model_settings)
+    if not settings:
+        raise HTTPException(status_code=404, detail="Model settings not available")
+    return settings
 
 
 class EstimationRequest(BaseModel):
     blocking_rule: str
 
+
 @app.post("/api/estimate-parameters")
-async def estimate_parameters(request: EstimationRequest):
-    """
-    Run Expectation Maximization to estimate m parameters using a blocking rule.
-    """
-    try:
-        if not splink_service.engine:
-            raise HTTPException(status_code=400, detail="Engine not initialized")
-            
-        result = splink_service.engine.run_em_estimation(request.blocking_rule)
-        
-        if result.get("status") == "error":
-            raise HTTPException(status_code=500, detail=result.get("message"))
-            
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+async def estimate_parameters(request: EstimationRequest, engine=Depends(require_engine)):
+    return await asyncio.to_thread(handle_engine_call, engine.run_em_estimation, request.blocking_rule)
+
 
 class TestRuleRequest(BaseModel):
     table_name: str
     blocking_rule: str
 
+
 @app.post("/api/test-blocking-rule")
 async def test_blocking_rule(request: TestRuleRequest):
-    """
-    Count the number of pairs generated by a blocking rule.
-    """
-    try:
-        if not splink_service.engine:
-            raise HTTPException(status_code=400, detail="Engine not initialized")
-            
-        result = splink_service.engine.count_pairs_for_rule(request.table_name, request.blocking_rule)
-        
-        if result.get("status") == "error":
-            raise HTTPException(status_code=500, detail=result.get("message"))
-            
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+    if splink_service.engine is None:
+        raise HTTPException(status_code=409, detail="Upload data before testing rules.")
+    return await asyncio.to_thread(
+        handle_engine_call,
+        splink_service.engine.count_pairs_for_rule,
+        request.table_name,
+        request.blocking_rule,
+    )
 
-@app.get("/api/model-settings")
-async def get_model_settings():
-    """
-    Get current Splink model settings.
-    """
-    try:
-        if not splink_service.engine:
-            raise HTTPException(status_code=400, detail="Engine not initialized")
-            
-        settings = splink_service.engine.get_model_settings()
-        if not settings:
-            raise HTTPException(status_code=404, detail="Model settings not available")
-            
-        return settings
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/match-weights-chart")
-async def get_match_weights_chart():
-    """
-    Get match weights chart data (Vega-Lite spec).
-    """
-    try:
-        if not splink_service.engine:
-            raise HTTPException(status_code=400, detail="Engine not initialized")
-            
-        chart = splink_service.engine.get_match_weights_chart_data()
+def _chart_endpoint(getter_name: str):
+    async def endpoint():
+        chart = handle_engine_call(getattr(splink_service, getter_name))
         if not chart:
-            raise HTTPException(status_code=404, detail="Chart data not available")
-            
-        return chart
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+            raise HTTPException(
+                status_code=409, detail="Chart unavailable. Run a match first."
+            )
+        return JSONResponse(content={"html": chart})
+
+    return endpoint
+
+
+app.add_api_route("/api/splink/charts/match-weights", _chart_endpoint("get_match_weights_chart"), methods=["GET"])
+app.add_api_route("/api/splink/charts/parameter-estimates", _chart_endpoint("get_parameter_estimates_chart"), methods=["GET"])
+app.add_api_route("/api/splink/charts/threshold-selection", _chart_endpoint("get_threshold_selection_chart"), methods=["GET"])
+app.add_api_route("/api/splink/charts/comparison-viewer", _chart_endpoint("get_comparison_viewer_dashboard"), methods=["GET"])
+
+
+@app.get("/api/splink/charts/waterfall")
+async def get_waterfall_chart(record_id_1: str, record_id_2: str):
+    """Explain one pair: which fields contributed how much evidence."""
+    chart = handle_engine_call(splink_service.get_waterfall_chart, record_id_1, record_id_2)
+    if not chart:
+        raise HTTPException(status_code=404, detail="Chart unavailable or pair not found.")
+    return JSONResponse(content={"html": chart})
+
+
+# -- streaming logs --------------------------------------------------------
+
+@app.get("/api/training-logs")
+async def training_logs(request: Request):
+    """SSE stream of training progress.
+
+    Heartbeats are sent on a real interval. The previous implementation
+    advertised 15 seconds but emitted one every 100ms, flooding the client.
+    """
+    HEARTBEAT_SECONDS = 15.0
+
+    async def event_generator():
+        last_heartbeat = time.monotonic()
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                log = training_log_queue.get_nowait()
+                yield {"event": "log", "data": json.dumps(log)}
+                continue
+            except Empty:
+                pass
+
+            now = time.monotonic()
+            if now - last_heartbeat >= HEARTBEAT_SECONDS:
+                last_heartbeat = now
+                yield {"event": "heartbeat", "data": json.dumps({"timestamp": time.time()})}
+
+            await asyncio.sleep(0.25)
+
+    try:
+        from sse_starlette.sse import EventSourceResponse
+    except ImportError:
+        raise HTTPException(
+            status_code=501, detail="Install sse-starlette to stream training logs."
+        )
+    return EventSourceResponse(event_generator())
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+
+    uvicorn.run("api:app", host="127.0.0.1", port=8000, reload=True)

@@ -75,7 +75,7 @@ export function WasmProvider({ children }: WasmProviderProps) {
 
                 // Note: Real Splink cannot run in browser due to C-extension dependencies
                 // We implement a Splink-compatible engine instead
-                console.log('✅ Python environment ready (Splink-compatible mode)')
+                console.log('Python environment ready (Splink-compatible mode)')
 
                 // Register JS callbacks for Python
                 pyodideInstance.globals.set("js_run_query", async (sql: string) => {

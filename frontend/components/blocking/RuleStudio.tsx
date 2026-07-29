@@ -80,7 +80,7 @@ export default function RuleStudio() {
         <div className="max-w-5xl mx-auto p-8 space-y-8">
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold gradient-text">Rule Studio</h1>
+                    <h1 className="text-3xl font-semibold tracking-tight">Rule Studio</h1>
                     <p className="text-muted-foreground mt-1">
                         Design your entity resolution strategy using natural language.
                     </p>
@@ -113,7 +113,7 @@ export default function RuleStudio() {
                         <thead>
                             <tr className="border-b border-white/10">
                                 {Object.keys(previewData[0]).map(key => (
-                                    <th key={key} className="py-2 px-3 font-medium text-purple-300">{key}</th>
+                                    <th key={key} className="py-2 px-3 font-medium text-muted-foreground">{key}</th>
                                 ))}
                             </tr>
                         </thead>
@@ -130,22 +130,22 @@ export default function RuleStudio() {
                 </GlassCard>
             )}
 
-            <GlassCard className="bg-blue-500/5 border-blue-500/20 p-4">
+            <GlassCard className="bg-primary border-border p-4">
                 <div className="flex gap-3">
-                    <div className="p-2 bg-blue-500/10 rounded-lg h-fit">
-                        <Wand2 className="w-5 h-5 text-blue-400" />
+                    <div className="p-2 bg-primary rounded-lg h-fit">
+                        <Wand2 className="w-5 h-5 text-muted-foreground" />
                     </div>
                     <div>
-                        <h3 className="font-medium text-blue-100">How to create a Blocking Rule</h3>
-                        <p className="text-sm text-blue-200/70 mt-1">
+                        <h3 className="font-medium text-foreground">How to create a Blocking Rule</h3>
+                        <p className="text-sm text-foreground/70 mt-1">
                             Blocking rules tell the system how to find potential matches efficiently.
                             Think of it as a &quot;Search Strategy&quot;. For example:
                         </p>
-                        <ul className="list-disc list-inside text-sm text-blue-200/70 mt-2 space-y-1">
+                        <ul className="list-disc list-inside text-sm text-foreground/70 mt-2 space-y-1">
                             <li>&quot;Find records where <strong>First Name</strong> sounds similar AND <strong>City</strong> is exactly the same.&quot;</li>
                             <li>&quot;Find records where <strong>Email</strong> is exactly the same.&quot;</li>
                         </ul>
-                        <p className="text-sm text-blue-200/70 mt-2">
+                        <p className="text-sm text-foreground/70 mt-2">
                             Create multiple rules to catch different types of matches (for example, one rule for names and another for emails).
                         </p>
                     </div>
@@ -175,7 +175,7 @@ export default function RuleStudio() {
                         variant="outline"
                         size="lg"
                         onClick={addRule}
-                        className="gap-2 border-dashed border-white/20 hover:border-purple-500 hover:text-purple-400 hover:bg-purple-500/5"
+                        className="gap-2 border-dashed border-white/20 hover:border-border hover:text-muted-foreground hover:bg-primary"
                     >
                         <Plus className="w-4 h-4" />
                         Add Search Strategy
