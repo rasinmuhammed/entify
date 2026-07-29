@@ -1,0 +1,19 @@
+{
+  "timeZone": "Asia/Kolkata",
+  "dependencies": {},
+  "exceptionLogging": "STACKDRIVER",
+  "runtimeVersion": "V8",
+  "oauthScopes": [
+    "https://www.googleapis.com/auth/spreadsheets.currentonly",
+    "https://www.googleapis.com/auth/script.container.ui",
+    "https://www.googleapis.com/auth/script.external_request"
+  ],
+  "addOns": {
+    "common": {
+      "name": "Entify",
+      "logoUrl": "https://raw.githubusercontent.com/rasinmuhammed/entify/main/frontend/app/icon.svg",
+      "useLocaleFromApp": true
+    },
+    "sheets": {}
+  }
+}

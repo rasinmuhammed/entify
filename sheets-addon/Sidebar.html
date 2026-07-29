@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<style>
+  /* Matches the Entify palette: near-monochrome, colour reserved for meaning. */
+  :root {
+    --ink: #16181d;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --paper: #ffffff;
+    --supports: #047857;
+    --against: #b91c1c;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 13px;
+    color: var(--ink);
+    margin: 0;
+    padding: 14px;
+    background: var(--paper);
+  }
+
+  h1 { font-size: 15px; font-weight: 600; margin: 0 0 3px; letter-spacing: -0.01em; }
+  .lede { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 0 0 16px; }
+
+  button.primary {
+    width: 100%;
+    padding: 9px 12px;
+    background: var(--ink);
+    color: #fff;
+    border: 0;
+    border-radius: 7px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  button.primary:disabled { opacity: 0.55; cursor: default; }
+
+  .control { margin: 14px 0 4px; }
+  .control label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+  .control input[type=range] { width: 100%; }
+  .threshold-value { font-variant-numeric: tabular-nums; color: var(--ink); }
+
+  .summary {
+    margin: 16px 0 10px;
+    padding: 11px 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  .summary strong { font-size: 20px; font-weight: 600; display: block; }
+  .summary span { color: var(--muted); font-size: 12px; }
+
+  .note {
+    margin: 8px 0;
+    padding: 9px 11px;
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--muted);
+    border-radius: 5px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .note.error { border-left-color: var(--against); color: var(--against); }
+
+  .group {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 11px;
+    margin-bottom: 8px;
+  }
+  .group-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 8px;
+  }
+  .group-title { font-weight: 600; font-size: 12px; }
+  .group-rows { color: var(--muted); font-size: 11px; }
+  .jump {
+    background: none; border: 0; padding: 0;
+    color: var(--muted); font-size: 11px;
+    cursor: pointer; text-decoration: underline;
+  }
+
+  table.evidence { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  table.evidence td { padding: 3px 0; vertical-align: top; }
+  .field { color: var(--muted); width: 33%; }
+  .values { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+  .values .vs { color: var(--muted); }
+  .weight { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .weight.up { color: var(--supports); }
+  .weight.down { color: var(--against); }
+
+  .spinner { color: var(--muted); font-size: 12px; padding: 10px 0; }
+</style>
+</head>
+<body>
+
+<h1>Find duplicates</h1>
+<p class="lede">
+  Scans this sheet for rows that refer to the same person or company, and
+  shows which fields led to each decision.
+</p>
+
+<div class="control">
+  <label for="threshold">
+    Confidence required: <span class="threshold-value" id="thresholdValue">90%</span>
+  </label>
+  <input type="range" id="threshold" min="50" max="99" value="90">
+</div>
+
+<button class="primary" id="run" onclick="run()">Scan this sheet</button>
+
+<div id="output"></div>
+
+<script>
+  var slider = document.getElementById('threshold');
+  var label = document.getElementById('thresholdValue');
+  slider.addEventListener('input', function () {
+    label.textContent = slider.value + '%';
+  });
+
+  function run() {
+    var button = document.getElementById('run');
+    button.disabled = true;
+    button.textContent = 'Scanning';
+    document.getElementById('output').innerHTML =
+      '<div class="spinner">Matching. This takes a few seconds.</div>';
+
+    google.script.run
+      .withSuccessHandler(render)
+      .withFailureHandler(fail)
+      .findDuplicates(Number(slider.value) / 100);
+  }
+
+  function reset() {
+    var button = document.getElementById('run');
+    button.disabled = false;
+    button.textContent = 'Scan this sheet';
+  }
+
+  function escapeHtml(text) {
+    return String(text).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function fail(error) {
+    reset();
+    document.getElementById('output').innerHTML =
+      '<div class="note error">' + escapeHtml(error.message) + '</div>';
+  }
+
+  function render(result) {
+    reset();
+    var html = '';
+
+    html += '<div class="summary"><strong>' + result.duplicate_rows + '</strong>' +
+            '<span>duplicate rows across ' + result.groups.length +
+            ' group' + (result.groups.length === 1 ? '' : 's') +
+            ', from ' + result.rows_examined + ' scanned</span></div>';
+
+    (result.notes || []).forEach(function (note) {
+      html += '<div class="note">' + escapeHtml(note) + '</div>';
+    });
+
+    if (!result.groups.length) {
+      html += '<div class="note">No duplicates found at this confidence. ' +
+              'Lower the threshold to see weaker matches.</div>';
+      document.getElementById('output').innerHTML = html;
+      return;
+    }
+
+    result.groups.forEach(function (group, index) {
+      html += '<div class="group">';
+      html += '<div class="group-head">';
+      html += '<span class="group-title">Group ' + (index + 1) + ' &middot; ' +
+              group.size + ' rows</span>';
+      html += '<button class="jump" onclick="jump(' + group.sheetRows[0] + ')">' +
+              'row ' + group.sheetRows[0] + '</button>';
+      html += '</div>';
+
+      if (group.evidence.length) {
+        html += '<table class="evidence">';
+        group.evidence.forEach(function (item) {
+          var direction = item.supports_match ? 'up' : 'down';
+          var sign = item.supports_match ? '+' : '-';
+          html += '<tr>';
+          html += '<td class="field">' + escapeHtml(item.field) + '</td>';
+          html += '<td class="values">' + escapeHtml(item.left || '(empty)') +
+                  '<br><span class="vs">' + escapeHtml(item.right || '(empty)') +
+                  '</span></td>';
+          html += '<td class="weight ' + direction + '">' + sign +
+                  item.strength + '&times;</td>';
+          html += '</tr>';
+        });
+        html += '</table>';
+      }
+      html += '</div>';
+    });
+
+    document.getElementById('output').innerHTML = html;
+  }
+
+  function jump(rowNumber) {
+    google.script.run.jumpToRow(rowNumber);
+  }
+</script>
+</body>
+</html>
