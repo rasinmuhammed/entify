@@ -181,11 +181,25 @@ def _corrupt(person: Person, rng: random.Random) -> Person:
     if rng.random() < 0.10:
         phone = ""
 
+    # Duplicates almost never share a creation date -- being entered at a
+    # different time is usually *why* the duplicate exists. Copying the date
+    # verbatim would hand the matcher a near-perfect identifier and inflate
+    # every accuracy number measured against this data.
+    signup_date = person.signup_date
+    if rng.random() < 0.85:
+        year, month, day = (int(part) for part in signup_date.split("-"))
+        shifted = day + rng.randint(-400, 400)
+        month += shifted // 28
+        year += (month - 1) // 12
+        month = (month - 1) % 12 + 1
+        day = max(1, min(28, abs(shifted) % 28 + 1))
+        signup_date = f"{max(2015, min(2026, year))}-{month:02d}-{day:02d}"
+
     return Person(
         entity_id=person.entity_id,
         first_name=first, last_name=last, email=email, phone=phone,
         address=address, city=city, country=person.country,
-        signup_date=person.signup_date,
+        signup_date=signup_date,
     )
 
 

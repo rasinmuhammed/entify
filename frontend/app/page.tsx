@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation"
 import { ArrowRight, Check, Terminal } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { DuplicateProof } from "@/components/marketing/DuplicateProof"
+import { MatchExplorer } from "@/components/marketing/MatchExplorer"
 import { Reveal } from "@/components/marketing/Reveal"
 
 /**
@@ -17,9 +18,9 @@ import { Reveal } from "@/components/marketing/Reveal"
  */
 
 const BENCHMARK = [
-  { threshold: "0.90", precision: "0.981", recall: "0.930", f1: "0.955" },
-  { threshold: "0.95", precision: "0.981", recall: "0.929", f1: "0.954" },
-  { threshold: "0.99", precision: "0.996", recall: "0.920", f1: "0.957" },
+  { threshold: "0.50", precision: "0.999", recall: "0.943", f1: "0.970" },
+  { threshold: "0.95", precision: "0.999", recall: "0.943", f1: "0.970" },
+  { threshold: "0.99", precision: "1.000", recall: "0.943", f1: "0.970" },
 ]
 
 const STEPS = [
@@ -100,9 +101,32 @@ export default function HomePage() {
       </section>
 
       {/* Proof, before persuasion */}
-      <Reveal as="section" className="relative mx-auto max-w-5xl px-6 pb-28">
+      <Reveal as="section" className="relative mx-auto max-w-5xl px-6 pb-24">
         <DuplicateProof />
       </Reveal>
+
+      {/* The differentiator, made touchable */}
+      <section className="relative mx-auto max-w-5xl px-6 pb-28">
+        <Reveal>
+          <h2 className="text-3xl font-semibold tracking-tight">
+            See why it decided
+          </h2>
+          <p className="mt-4 max-w-2xl leading-relaxed text-muted-foreground">
+            Most matching tools hand you a similarity score and ask you to
+            trust it. Entify shows the arithmetic: a starting assumption that
+            two random records are unrelated, then every field pushing the
+            evidence up or down until it lands on a probability.
+          </p>
+          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground/70">
+            Real pairs from the benchmark below — including one the model
+            correctly refused to merge.
+          </p>
+        </Reveal>
+
+        <Reveal delay={80} className="mt-8">
+          <MatchExplorer />
+        </Reveal>
+      </section>
 
       {/* Measured results */}
       <section className="relative border-y border-border/50 bg-card/20">
@@ -151,8 +175,8 @@ export default function HomePage() {
                 </tbody>
               </table>
               <p className="border-t border-border/60 px-5 py-3 text-xs leading-relaxed text-muted-foreground/80">
-                3,674 records · 3,000 distinct entities · 18% duplicate rate ·
-                ~2.5s end to end
+                3,671 records · 3,000 distinct entities · 18% duplicate rate ·
+                ~1.5s end to end
               </p>
             </div>
           </div>

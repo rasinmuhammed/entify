@@ -7,8 +7,8 @@ export the deduplicated result.
 Built on [Splink 4](https://github.com/moj-analytical-services/splink) (the UK
 Ministry of Justice's probabilistic record linkage library) and DuckDB.
 
-**Measured accuracy: precision 0.98, recall 0.93 (F1 0.957)** against a
-labelled benchmark of 3,674 records with known duplicates. See
+**Measured accuracy: precision 0.999, recall 0.943 (F1 0.970)** against a
+labelled benchmark of 3,671 records with known duplicates. See
 [Benchmark](#benchmark) to reproduce it.
 
 ---
@@ -69,8 +69,8 @@ proposes blocking rules, measures how many pairs each one actually generates,
 and keeps the set that fits a comparison budget. Every decision carries a
 stated reason and can be overridden.
 
-On the benchmark, automatic configuration scores **precision 1.000, recall
-0.940 (F1 0.969)** — better than the hand-tuned config below, while scoring
+On the benchmark, automatic configuration scores **precision 0.999, recall
+0.943 (F1 0.970)** — better than the hand-tuned config below, while scoring
 less than half the candidate pairs. That is the difference between a tool for
 people who understand record linkage and one that anybody can use.
 
@@ -138,14 +138,19 @@ count tracks ground truth within 20%, that precision rises monotonically with
 threshold, and that the model actually trained. A scoring or clustering
 regression fails the build instead of quietly degrading results.
 
-| Config           | Threshold | Precision | Recall |    F1 | Pairs scored |
-| ---------------- | --------- | --------- | ------ | ----- | ------------ |
-| Hand-tuned       |      0.90 |     0.981 |  0.930 | 0.955 |       13,376 |
-| Hand-tuned       |      0.99 |     0.996 |  0.920 | 0.957 |       13,376 |
-| **Auto-config**  |      0.95 | **1.000** |  0.940 | 0.969 |    **5,514** |
+| Config          | Threshold | Precision | Recall |    F1 | Pairs scored |
+| --------------- | --------- | --------- | ------ | ----- | ------------ |
+| Hand-tuned      |      0.90 |     0.981 |  0.930 | 0.955 |       13,376 |
+| Hand-tuned      |      0.99 |     0.996 |  0.920 | 0.957 |       13,376 |
+| **Auto-config** |      0.95 | **0.999** |  0.943 | 0.970 |    **5,595** |
+| **Auto-config** |      0.99 | **1.000** |  0.943 | 0.970 |    **5,595** |
 
-Measured on 3,674 records / 3,000 distinct entities at an 18% duplicate rate.
+Measured on 3,671 records / 3,000 distinct entities at an 18% duplicate rate.
 About 1–2.5 seconds end to end.
+
+Duplicate records in the generator are given a *different* signup date from
+their original. Copying it verbatim would hand the matcher a near-perfect
+identifier and inflate every number in this table.
 
 Blocking matters more than any other single choice: a loose rule set on the
 same data scored 230,785 pairs at precision 0.61, while the tuned rules scored
@@ -207,7 +212,7 @@ Stated plainly, because knowing the edges is part of using this.
 ## Development
 
 ```bash
-cd backend && pytest tests/ -q      # 31 tests, ~6s
+cd backend && pytest tests/ -q      # 43 tests, ~10s
 cd frontend && npm run build        # typecheck + production build
 ```
 
