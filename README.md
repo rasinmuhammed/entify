@@ -247,3 +247,7 @@ Requires Python 3.11+ and Node 20+. The repo includes `.nvmrc` and
 ## Licence
 
 See [LICENSE.md](LICENSE.md).
+
+## Keywords
+
+entity resolution, record linkage, data deduplication, fuzzy matching, customer 360, master data management, data quality, data matching, Splink UI, DuckDB, FastAPI, Next.js, Supabase, semantic blocking, identity resolution, duplicate detection, entity matching, data cleaning, open source MDM
