@@ -21,6 +21,8 @@ import time
 from queue import Empty, Queue
 from typing import Any, Optional
 
+from services import sheets_service
+
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -626,6 +628,43 @@ async def training_logs(request: Request):
         )
     return EventSourceResponse(event_generator())
 
+
+
+class SheetsDedupeRequest(BaseModel):
+    """A spreadsheet selection: header row plus data rows."""
+
+    header: list[str]
+    rows: list[list[Any]]
+    threshold: float = Field(default=0.9, ge=0.5, le=0.999)
+
+
+@app.post("/api/sheets/dedupe")
+async def sheets_dedupe(request: SheetsDedupeRequest):
+    """Find duplicate rows in a spreadsheet selection.
+
+    Self-contained on purpose: the Sheets add-on has no project or config, so
+    this runs profiling, configuration, matching and clustering in one call
+    against a throwaway engine. Nothing is retained between requests, which
+    also means concurrent callers cannot collide the way the workspace
+    endpoints can.
+    """
+    try:
+        # Blocking work; keep the event loop free for other requests.
+        return await asyncio.to_thread(
+            sheets_service.dedupe,
+            request.header,
+            request.rows,
+            request.threshold,
+        )
+    except sheets_service.SheetsDedupeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Sheets dedupe failed")
+        raise HTTPException(
+            status_code=500,
+            detail="Matching failed on this selection. Check the columns are "
+                   "the ones you meant to include.",
+        ) from exc
 
 if __name__ == "__main__":
     import uvicorn

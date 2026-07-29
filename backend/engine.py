@@ -546,8 +546,14 @@ class EntityResolutionEngine:
 
         merged = original_df.merge(clusters_df, on="unique_id", how="left")
 
+        # Splink may return numeric cluster ids. Singletons are labelled with a
+        # string, so the column has to hold objects before that assignment or
+        # pandas refuses to write str into an int64 column.
+        merged["cluster_id"] = merged["cluster_id"].astype("object")
         unassigned = merged["cluster_id"].isna()
-        merged.loc[unassigned, "cluster_id"] = "singleton_" + merged.loc[unassigned, "unique_id"]
+        merged.loc[unassigned, "cluster_id"] = "singleton_" + merged.loc[
+            unassigned, "unique_id"
+        ].astype(str)
         merged["cluster_size"] = merged["cluster_id"].map(merged.groupby("cluster_id").size())
 
         lead = ["unique_id", "cluster_id", "cluster_size"]
