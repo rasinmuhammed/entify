@@ -563,7 +563,7 @@ export function ClusterVisualization({
                                             {cluster.size} entities
                                         </Badge>
                                         {cluster.cluster_id && (
-                                            <Badge variant="outline" className="font-mono text-xs text-purple-600 dark:text-purple-400">
+                                            <Badge variant="outline" className="font-mono text-xs text-foreground dark:text-muted-foreground">
                                                 {cluster.cluster_id.substring(0, 8)}...
                                             </Badge>
                                         )}

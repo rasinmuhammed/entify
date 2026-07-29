@@ -70,7 +70,7 @@ export function CleaningResults({
 
     const qualityScore = qualityMetrics?.overall || 0
     const qualityGrade = qualityScore >= 90 ? { label: 'Excellent', color: 'bg-green-500', emoji: '🏆' } :
-        qualityScore >= 75 ? { label: 'Good', color: 'bg-blue-500', emoji: '✅' } :
+        qualityScore >= 75 ? { label: 'Good', color: 'bg-primary', emoji: '✅' } :
             qualityScore >= 60 ? { label: 'Fair', color: 'bg-yellow-500', emoji: '⚠️' } :
                 { label: 'Needs Work', color: 'bg-red-500', emoji: '❌' }
 

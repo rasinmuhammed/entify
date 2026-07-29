@@ -32,7 +32,7 @@ export function AppSidebar({ className }: SidebarProps) {
             label: "Data Vault",
             icon: Database,
             href: "/vault",
-            color: "text-violet-500",
+            color: "text-muted-foreground",
         },
         {
             label: "History",
@@ -50,7 +50,7 @@ export function AppSidebar({ className }: SidebarProps) {
             label: "Analytics",
             icon: BarChart3,
             href: "/dashboard/analytics",
-            color: "text-blue-500",
+            color: "text-muted-foreground",
         },
         {
             label: "Audit Reports",

@@ -137,7 +137,7 @@ export function SmartBlockingPanel({
         <Card className="border-dashed">
             <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                    <Sparkles className="h-5 w-5 text-blue-600" />
+                    <Sparkles className="h-5 w-5 text-foreground" />
                     Smart Semantic Blocking
                 </CardTitle>
                 <CardDescription>

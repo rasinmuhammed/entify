@@ -36,7 +36,7 @@ export default function RootLayout({
             <div className="flex min-h-screen flex-col bg-background">
               <DemoModeBanner />
               <TopNav />
-              <main className="flex-1">{children}</main>
+              <main className="flex min-h-0 flex-1 flex-col">{children}</main>
             </div>
           </AuthGate>
         </Providers>

@@ -207,7 +207,7 @@ export function RuleImpactVisualization({ totalRecords, rules }: RuleImpactVisua
 
             {/* Recommendations */}
             {ruleImpacts.length > 0 && (
-                <Card className="border-blue-500/50 bg-blue-50/50 dark:bg-blue-950/20">
+                <Card className="border-border bg-muted dark:bg-muted">
                     <CardHeader>
                         <CardTitle className="text-sm">💡 Recommendations</CardTitle>
                     </CardHeader>

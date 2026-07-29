@@ -66,11 +66,11 @@ export function PhaseGuidanceCard({
 
     return (
         <Card className={`
-      ${isComplete ? 'border-green-500/50 bg-green-50/50 dark:bg-green-950/20' : 'border-blue-500/50 bg-blue-50/50 dark:bg-blue-950/20'}
+      ${isComplete ? 'border-green-500/50 bg-green-50/50 dark:bg-green-950/20' : 'border-border bg-muted dark:bg-muted'}
     `}>
             <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
-                    <Icon className={`w-5 h-5 ${isComplete ? 'text-green-600' : 'text-blue-600'}`} />
+                    <Icon className={`w-5 h-5 ${isComplete ? 'text-green-600' : 'text-foreground'}`} />
                     {statusInfo.title}
                 </CardTitle>
                 <CardDescription className="text-sm">
@@ -139,7 +139,7 @@ function getPhaseSpecificGuidance(phase: PhaseId, phaseStatus: PhaseStatus) {
             return (
                 <div className="space-y-2">
                     <div className="flex items-start gap-2 text-sm">
-                        <AlertCircle className="w-4 h-4 mt-0.5 text-blue-600 flex-shrink-0" />
+                        <AlertCircle className="w-4 h-4 mt-0.5 text-foreground flex-shrink-0" />
                         <div>
                             <p className="font-medium">Upload your CSV file to begin</p>
                             <p className="text-muted-foreground text-xs">Your data will be processed in the browser</p>
@@ -162,7 +162,7 @@ function getPhaseSpecificGuidance(phase: PhaseId, phaseStatus: PhaseStatus) {
             return (
                 <div className="space-y-2">
                     <div className="flex items-start gap-2 text-sm">
-                        <AlertCircle className="w-4 h-4 mt-0.5 text-blue-600 flex-shrink-0" />
+                        <AlertCircle className="w-4 h-4 mt-0.5 text-foreground flex-shrink-0" />
                         <div>
                             <p className="font-medium">Add at least one blocking rule</p>
                             <p className="text-muted-foreground text-xs">
@@ -177,7 +177,7 @@ function getPhaseSpecificGuidance(phase: PhaseId, phaseStatus: PhaseStatus) {
             return (
                 <div className="space-y-2">
                     <div className="flex items-start gap-2 text-sm">
-                        <CheckCircle2 className="w-4 h-4 mt-0.5 text-blue-600 flex-shrink-0" />
+                        <CheckCircle2 className="w-4 h-4 mt-0.5 text-foreground flex-shrink-0" />
                         <div>
                             <p className="font-medium">Configure at least one field comparison</p>
                             <p className="text-muted-foreground text-xs">

@@ -65,7 +65,7 @@ export default function ActiveLearning() {
                 <span className="text-sm font-medium text-muted-foreground">
                     Reviewing uncertain matches (0.4 - 0.6)
                 </span>
-                <span className="text-sm font-bold text-purple-400">
+                <span className="text-sm font-bold text-muted-foreground">
                     {pairs.length} remaining
                 </span>
             </div>

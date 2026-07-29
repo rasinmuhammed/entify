@@ -32,10 +32,10 @@ export function BlockingRulesExplainer() {
     return (
         <div className="space-y-6">
             {/* Header */}
-            <Card className="border-blue-500/50 bg-blue-50/50 dark:bg-blue-950/20">
+            <Card className="border-border bg-muted dark:bg-muted">
                 <CardHeader>
                     <div className="flex items-start gap-3">
-                        <Info className="h-6 w-6 text-blue-600 mt-1" />
+                        <Info className="h-6 w-6 text-foreground mt-1" />
                         <div>
                             <CardTitle>What are Blocking Rules?</CardTitle>
                             <CardDescription className="mt-2">
@@ -189,7 +189,7 @@ export function BlockingRulesExplainer() {
             <Card>
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                        <TrendingDown className="h-5 w-5 text-purple-500" />
+                        <TrendingDown className="h-5 w-5 text-muted-foreground" />
                         Best Practices
                     </CardTitle>
                 </CardHeader>

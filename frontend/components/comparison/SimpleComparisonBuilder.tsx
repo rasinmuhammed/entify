@@ -278,7 +278,7 @@ export function SimpleComparisonBuilder({
     return (
         <div className="space-y-6">
             {/* Global Settings Panel */}
-            <Card className="border-indigo-500/50 bg-indigo-50/50 dark:bg-indigo-950/20">
+            <Card className="border-border bg-muted dark:bg-muted">
                 <CardHeader className="pb-3">
                     <CardTitle className="flex items-center gap-2 text-base">
                         <Settings className="h-4 w-4" />
@@ -315,11 +315,11 @@ export function SimpleComparisonBuilder({
             </Card>
 
             {/* Header with Mode Toggle */}
-            <Card className="border-blue-500/50 bg-blue-50/50 dark:bg-blue-950/20">
+            <Card className="border-border bg-muted dark:bg-muted">
                 <CardContent className="py-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                        <div className="p-2 bg-blue-100 dark:bg-blue-900 rounded-lg">
-                            <Zap className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                        <div className="p-2 bg-muted dark:bg-muted rounded-lg">
+                            <Zap className="h-5 w-5 text-foreground dark:text-muted-foreground" />
                         </div>
                         <div>
                             <h3 className="font-medium">Configuration Mode</h3>
@@ -501,7 +501,7 @@ export function SimpleComparisonBuilder({
                                                     return (
                                                         <div key={idx} className="relative pl-8">
                                                             {/* Connector dot */}
-                                                            <div className={`absolute left-[13px] top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border-2 border-background ${isFirst ? 'bg-green-500' : isLast ? 'bg-red-500' : 'bg-blue-500'
+                                                            <div className={`absolute left-[13px] top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border-2 border-background ${isFirst ? 'bg-green-500' : isLast ? 'bg-red-500' : 'bg-primary'
                                                                 }`} />
 
                                                             <div className={`p-3 rounded-md border text-sm ${isLast ? 'bg-muted/50 border-dashed' : 'bg-card'

@@ -128,13 +128,13 @@ export function ThresholdAnalysis({ currentThreshold = 0.5, onThresholdChange }:
                                 return (
                                     <tr
                                         key={metrics.threshold}
-                                        className={`border-b hover:bg-muted/50 cursor-pointer ${isCurrent ? 'bg-blue-50 dark:bg-blue-950/30' : ''
+                                        className={`border-b hover:bg-muted/50 cursor-pointer ${isCurrent ? 'bg-muted dark:bg-muted' : ''
                                             }`}
                                         onClick={() => onThresholdChange?.(metrics.threshold)}
                                     >
                                         <td className="p-2 font-mono">
                                             {metrics.threshold.toFixed(2)}
-                                            {isCurrent && <span className="ml-2 text-xs text-blue-600">← Current</span>}
+                                            {isCurrent && <span className="ml-2 text-xs text-foreground">← Current</span>}
                                             {isRecommended && <span className="ml-2 text-xs text-green-600">✓ Recommended</span>}
                                         </td>
                                         <td className="p-2 text-right">{metrics.match_count.toLocaleString()}</td>

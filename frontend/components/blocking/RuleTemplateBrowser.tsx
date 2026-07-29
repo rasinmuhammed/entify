@@ -170,7 +170,7 @@ export function RuleTemplateBrowser({ columns, onSelectTemplate }: RuleTemplateB
 
                                             {/* Splink Function */}
                                             {template.splinkFunction && (
-                                                <div className="bg-blue-50 dark:bg-blue-950/20 p-2 rounded">
+                                                <div className="bg-muted dark:bg-muted p-2 rounded">
                                                     <p className="text-xs text-muted-foreground mb-1">Splink:</p>
                                                     <code className="text-xs">{template.splinkFunction}</code>
                                                 </div>

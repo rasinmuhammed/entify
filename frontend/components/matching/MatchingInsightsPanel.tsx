@@ -226,7 +226,7 @@ export function MatchingInsightsPanel({
                 {/* Match Quality Distribution */}
                 <GlassCard className="p-6">
                     <div className="flex items-center gap-2 mb-4">
-                        <TrendingUp className="h-5 w-5 text-blue-600" />
+                        <TrendingUp className="h-5 w-5 text-foreground" />
                         <h3 className="font-semibold">Match Quality Distribution</h3>
                     </div>
                     <div className="h-[200px]">
@@ -255,7 +255,7 @@ export function MatchingInsightsPanel({
                 {/* Cluster Size Distribution */}
                 <GlassCard className="p-6 lg:col-span-2">
                     <div className="flex items-center gap-2 mb-4">
-                        <BarChart3 className="h-5 w-5 text-purple-600" />
+                        <BarChart3 className="h-5 w-5 text-foreground" />
                         <h3 className="font-semibold">Cluster Size Distribution</h3>
                         <p className="text-xs text-muted-foreground ml-auto">(Click bars to filter)</p>
                     </div>
