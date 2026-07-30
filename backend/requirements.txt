@@ -20,3 +20,13 @@ openpyxl==3.1.5
 # The PDF audit report. Was previously imported by auditor.py without being
 # declared here, so a clean install failed the moment anyone hit /api/audit.
 fpdf2==2.8.7
+
+# Imported directly by engine.py. It arrives transitively via pandas today,
+# but relying on someone else's dependency for something you import yourself
+# breaks the moment they drop it.
+numpy==2.5.1
+
+# Streams training logs to the UI. api.py imports it lazily and answers 501
+# without it, so this is not load-bearing, but the feature is part of the
+# product and should work on a default install.
+sse-starlette==3.4.6
