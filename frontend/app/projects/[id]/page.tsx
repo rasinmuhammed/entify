@@ -62,7 +62,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog"
-import { fetchApiText } from "@/lib/api/client"
+import { BACKEND_RESULTS_TABLE, fetchApiText } from "@/lib/api/client"
 import type { ComparisonConfig } from "@/lib/comparison/comparisonMethods"
 import { loadProjectBundle, saveDatasetPrimaryKey } from "@/lib/projects/persistence"
 import { useProjectAutosave } from "@/lib/projects/useProjectAutosave"
@@ -896,20 +896,25 @@ export default function ProjectPage() {
                                                     matches={results}
                                                     threshold={0.5}
                                                     duckDB={duckDB}
-                                                    originalTableName={activeDataset ? `${activeDataset.name.replace(/[^a-zA-Z0-9_]/g, '_')}_original` : undefined}
+                                                    // Queried against the backend, so it must be the
+                                                    // backend's table. A browser-side name here made the
+                                                    // cluster table view fail the same way export did.
+                                                    originalTableName={BACKEND_RESULTS_TABLE}
                                                     filterSize={clusterSizeFilter}
                                                     primaryKeyColumn={primaryKey || undefined}
                                                     onExport={async () => {
                                                         if (!activeDataset) return
 
                                                         try {
-                                                            const tableName = `${activeDataset.name.replace(/[^a-zA-Z0-9_]/g, '_')}_original`
+                                                            // Must be the backend's table, not the browser's. Sending
+                                                            // `<dataset>_original` here made every export fail with a
+                                                            // 400 while the results sat in input_data.
                                                             const idColumn = primaryKey || 'unique_id'
 
                                                             console.log('Exporting enriched clusters...')
 
                                                             const csvData = await fetchApiText('/api/export-clusters', undefined, {
-                                                                table_name: tableName,
+                                                                table_name: BACKEND_RESULTS_TABLE,
                                                                 threshold,
                                                                 id_column: idColumn,
                                                             })

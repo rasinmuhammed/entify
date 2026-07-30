@@ -2,6 +2,21 @@ const DEFAULT_API_BASE_URL = "http://localhost:8000"
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_BASE_URL
 
+/**
+ * The table the backend holds results in.
+ *
+ * There are two DuckDB instances in play and they do not share names. The
+ * browser one holds the uploaded file under the dataset's own name; the
+ * backend one receives CSV over /api/resolve, which does not send a
+ * table_name, so it lands on the server default.
+ *
+ * Passing a browser-side name to a backend endpoint returns "table not found".
+ * That is exactly how Export All broke: it sent `<dataset>_original` and got a
+ * 400 while the data sat in `input_data` the whole time. Every backend query
+ * about results has to use this.
+ */
+export const BACKEND_RESULTS_TABLE = "input_data"
+
 function withTrailingSlash(value: string) {
   return value.endsWith("/") ? value : `${value}/`
 }
