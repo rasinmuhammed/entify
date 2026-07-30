@@ -15,7 +15,7 @@ import {
     Network,
     Clock
 } from "lucide-react"
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts"
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 import { buildApiUrl } from "@/lib/api/client"
 
 interface MatchStatistics {
@@ -121,6 +121,10 @@ export function MatchingInsightsPanel({
         { name: "Medium (80-95%)", value: stats.matches.medium_confidence, color: "#f59e0b" },
         { name: "Low (Threshold-80%)", value: stats.matches.low_confidence, color: "#ef4444" }
     ].filter(item => item.value > 0)
+
+    // Denominator for the confidence breakdown. Uses the bands actually shown
+    // so the percentages always sum to 100 rather than to some other total.
+    const totalGraded = matchDistribution.reduce((sum, band) => sum + band.value, 0)
 
     const clusterDistribution = [
         { name: "Singletons", value: stats.clusters.singletons },
@@ -229,26 +233,59 @@ export function MatchingInsightsPanel({
                         <TrendingUp className="h-5 w-5 text-foreground" />
                         <h3 className="font-semibold">Match Quality Distribution</h3>
                     </div>
-                    <div className="h-[200px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                                <Pie
-                                    data={matchDistribution}
-                                    cx="50%"
-                                    cy="50%"
-                                    labelLine={false}
-                                    label={({ name, percent }) => `${name}: ${((percent || 0) * 100).toFixed(0)}%`}
-                                    outerRadius={80}
-                                    fill="#8884d8"
-                                    dataKey="value"
-                                >
-                                    {matchDistribution.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={entry.color} />
-                                    ))}
-                                </Pie>
-                                <Tooltip />
-                            </PieChart>
-                        </ResponsiveContainer>
+                    {/*
+                      * Drawn directly rather than with a chart library.
+                      *
+                      * This was a Recharts PieChart that rendered a correctly
+                      * sized surface containing zero sectors on Recharts 3, so
+                      * the panel was permanently blank. A pie is also the wrong
+                      * form here: these are three ordered buckets of one total,
+                      * and the question is "how much of my output is confident",
+                      * which a proportional bar answers directly and a pie makes
+                      * you estimate from angles.
+                      */}
+                    <div className="space-y-4">
+                        <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted">
+                            {matchDistribution.map((band) => (
+                                <div
+                                    key={band.name}
+                                    className="h-full first:rounded-l-full last:rounded-r-full"
+                                    style={{
+                                        width: `${totalGraded ? (band.value / totalGraded) * 100 : 0}%`,
+                                        backgroundColor: band.color,
+                                    }}
+                                />
+                            ))}
+                        </div>
+
+                        <div className="space-y-2.5">
+                            {matchDistribution.map((band) => (
+                                <div key={band.name} className="flex items-baseline gap-2.5 text-sm">
+                                    <span
+                                        className="size-2 shrink-0 translate-y-[-1px] rounded-full"
+                                        style={{ backgroundColor: band.color }}
+                                    />
+                                    <span className="flex-1 truncate text-muted-foreground">
+                                        {band.name}
+                                    </span>
+                                    <span className="tabular-nums font-medium">
+                                        {band.value.toLocaleString()}
+                                    </span>
+                                    <span className="w-11 text-right tabular-nums text-xs text-muted-foreground">
+                                        {totalGraded
+                                            ? `${((band.value / totalGraded) * 100).toFixed(1)}%`
+                                            : "0%"}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+
+                        {matchDistribution.length === 0 && (
+                            <p className="py-6 text-center text-sm text-muted-foreground">
+                                No scored pairs yet. Run the pipeline to see the
+                                confidence breakdown.
+                            </p>
+                        )}
                     </div>
                 </GlassCard>
 

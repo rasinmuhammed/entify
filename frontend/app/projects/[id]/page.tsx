@@ -397,6 +397,21 @@ export default function ProjectPage() {
 
             if (response.status === 'success') {
                 setResults(response.matches)
+                setModelTrained(true)
+
+                // Running the pipeline trains the model and produces clusters,
+                // so the phases that depend on those are now reachable. Without
+                // this the run succeeded, navigated to Results, and left every
+                // downstream phase padlocked: Laboratory became permanently
+                // unreachable and Results showed a lock while displaying them.
+                updatePhaseStatus('training', { complete: true, canAccess: true })
+                updatePhaseStatus('laboratory', { canAccess: true })
+                updatePhaseStatus('results', {
+                    complete: true,
+                    canAccess: true,
+                    metadata: { matches: response.total_pairs },
+                })
+
                 setActivePhase('results')
                 console.log(` Found ${response.total_pairs} matches in ${response.execution_time_ms}ms`)
             } else {
