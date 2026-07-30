@@ -72,6 +72,27 @@ columns are ignored.
 backgrounds are set. Both are removed by **Entify > Clear highlighting**, and
 by the next scan.
 
+## Listing on the Google Workspace Marketplace
+
+Listing is free, but public listings are reviewed by Google and there are
+prerequisites that have nothing to do with code:
+
+1. **A standard Google Cloud project**, linked to the Apps Script project. The
+   default project Apps Script creates cannot be used for publishing.
+2. **A domain you own**, verified through Google Search Console. The homepage,
+   privacy policy and terms of service must all live on it. Third-party URLs
+   are not accepted, so a Notion page or a GitHub README will not do.
+3. **A legal business name and physical business address**, published in the
+   listing, plus a monitored support email address.
+4. **A privacy policy that says where the data goes.** This add-on sends sheet
+   contents to a backend over `script.external_request`, so the review will
+   ask what happens to that data, how long it is kept, and who can see it.
+   The answer has to be written down and true.
+
+Before any of that, the add-on can be run as an unpublished deployment by you
+and by named test users, with no review at all. That is the right way to
+exercise it first.
+
 ## Scopes
 
 The manifest requests the narrowest scopes that work:

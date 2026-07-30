@@ -8,6 +8,15 @@
  *
  * Apps Script cannot run the matching itself, so the selection is sent to
  * the Entify backend and the results are painted back onto the sheet.
+ *
+ * @OnlyCurrentDoc
+ *
+ * The annotation above is load-bearing, not decoration. It restricts the
+ * script to the spreadsheet it is bound to, which keeps the add-on on the
+ * narrow spreadsheets.currentonly scope instead of requesting access to
+ * everything in the user's Drive. That is the difference between a light
+ * brand review and a full security assessment when publishing, and it is
+ * also the honest scope for what this does.
  */
 
 // Overridden per-install via Script Properties so a self-hosted backend does
