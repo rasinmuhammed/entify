@@ -79,6 +79,11 @@ read as text throughout, because Excel coerces long digit strings to floats
 and a phone number arriving as `8.0115652874e+11` will never match its
 counterpart.
 
+**Read what you have.** CSV, TSV, Parquet, JSON, and Excel. Workbooks are
+read as text throughout, because Excel coerces long digit strings to floats
+and a phone number arriving as `8.0115652874e+11` will never match its
+counterpart.
+
 **Profile.** Row counts, distinct values and completeness per column. Missing
 data counts nulls *and* blank strings, because a column that is 40% empty
 strings is 40% empty.
