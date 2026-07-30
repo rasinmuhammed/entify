@@ -36,3 +36,12 @@ test_upload.csv
 
 frontend/tsconfig.tsbuildinfo
 .claude/
+
+# Environment files in every form, including the backups a careless
+# "mv .env.local .env.local.bak" leaves behind. A narrow rule that only
+# covered .env.local is how a Clerk secret reached this repository.
+.env
+.env.*
+*.env
+frontend/.env*
+backend/.env*
