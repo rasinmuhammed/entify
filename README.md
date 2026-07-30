@@ -213,7 +213,42 @@ datasets have no such column. Removing it forces matching to work from names,
 addresses and dates alone, and precision holds at 1.000 while recall falls
 only to 0.987.
 
-Both variants are asserted as floors in `tests/test_external_benchmark.py`,
+### Stressing the configuration, not the matcher
+
+Accuracy on a dataset with headers like `given_name` and `date_of_birth` is a
+friendly test: the names tell the profiler most of what it needs before it has
+read a value. Real exports are rarely that polite.
+
+```bash
+./.venv/bin/python scripts/benchmark_autoconfig.py
+```
+
+Each variant changes what auto-configuration has to work out while holding the
+records and the ground truth constant, so a drop is a failure of the
+configuration logic rather than of Splink.
+
+| Variant                                     | Precision | Recall |    F1 |
+| ------------------------------------------- | --------- | ------ | ----- |
+| Baseline, original headers                  |     1.000 |  0.999 | 0.999 |
+| Meaningless headers (`col_1..col_N`)        |     1.000 |  0.991 | 0.995 |
+| Non-English headers                         |     1.000 |  0.991 | 0.995 |
+| Plus constant, unique and 95% empty columns |     1.000 |  0.999 | 0.999 |
+| 35% of name and date values blanked         |     1.000 |  0.992 | 0.996 |
+| Decoy unique `id` column present            |     1.000 |  0.999 | 0.999 |
+| Shuffled order, duplicated name field       |     1.000 |  0.999 | 0.999 |
+| No identifier and no date of birth          |     1.000 |  0.910 | 0.953 |
+
+Two things worth drawing out. **Precision is 1.000 in every variant**, so no
+amount of obfuscation makes it merge unrelated people; the failure mode is
+finding less, not merging wrongly. And accuracy barely moves when the headers
+are stripped of meaning, which means roles are being inferred from values
+rather than from column names.
+
+The one real drop is the last row, where the identifier and the date are both
+removed and matching has to work from names and addresses alone. Recall falls
+to 0.910 and precision holds.
+
+Both benchmarks are asserted as floors in `tests/test_external_benchmark.py`,
 which skips rather than fails when the dataset cannot be fetched.
 
 ### Scaling

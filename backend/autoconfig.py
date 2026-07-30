@@ -196,12 +196,17 @@ def profile_columns(engine: EntityResolutionEngine, table_name: str) -> list[Col
             empty_ratio=empty_ratio, samples=samples[:3],
         )
 
+        # Emptiness is checked before low-signal. A column that is 95% blank
+        # with one repeated value technically has one distinct value, but
+        # "only one distinct value" sends the reader off to look at the values
+        # when the actual problem is that almost every row is missing. The
+        # explanation should name the thing they would fix.
         if role == ColumnRole.IDENTIFIER:
             item.reason = "Looks like a unique key, excluded from matching"
-        elif role == ColumnRole.LOW_SIGNAL:
-            item.reason = "Only one distinct value, so no matching signal"
         elif empty_ratio > MAX_EMPTY_RATIO:
             item.reason = f"{empty_ratio:.0%} empty, too sparse to match on"
+        elif role == ColumnRole.LOW_SIGNAL:
+            item.reason = "Only one distinct value, so no matching signal"
         else:
             item.reason = f"Detected as {role.replace('_', ' ')}"
 

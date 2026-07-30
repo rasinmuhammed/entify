@@ -131,3 +131,84 @@ def test_numeric_identifier_columns_do_not_break_matching(febrl):
 
     # Resolving at all is the assertion: this raised before the fix.
     assert resolve(frame[["rec_id", *numeric]], threshold=0.95) is not None
+
+
+# -- auto-configuration robustness ----------------------------------------
+#
+# The tests above ask whether matching is accurate. These ask whether the
+# *configuration* survives data that does not announce what it holds. A drop
+# here is a failure of the profiler, not of Splink, because the underlying
+# records and the ground truth are identical in every variant.
+
+
+def _anonymise(frame):
+    """Strip every header of meaning except the record id."""
+    out = frame.copy()
+    out.columns = ["rec_id"] + [f"col_{i}" for i in range(1, len(frame.columns))]
+    return out
+
+
+def test_roles_are_inferred_from_values_not_headers(febrl):
+    """Headers like `given_name` give the profiler the answer for free.
+
+    Real exports arrive as Field1, or in another language. If accuracy
+    collapses without helpful names, the profiler was reading headers rather
+    than data.
+    """
+    frame, truth = febrl
+    precision, recall = score(resolve(_anonymise(frame)), truth)
+    assert precision >= 0.98, f"precision {precision:.3f}"
+    assert recall >= 0.95, f"recall {recall:.3f}"
+
+
+def test_junk_columns_are_excluded_with_an_accurate_reason(febrl):
+    """A constant, a row number and a mostly empty column carry no signal.
+
+    The reason matters as much as the exclusion: this product's argument is
+    that every decision is explainable, so a misleading explanation is a
+    defect even when the decision is right.
+    """
+    import numpy as np
+
+    frame, _ = febrl
+    noisy = frame.copy()
+    rng = np.random.default_rng(7)
+    noisy["region"] = "APAC"
+    noisy["export_row"] = [f"x{i}" for i in range(len(noisy))]
+    noisy["notes"] = np.where(rng.random(len(noisy)) < 0.05, "follow up", "")
+
+    handle, path = tempfile.mkstemp(suffix=".csv", prefix="junk_")
+    os.close(handle)
+    noisy.to_csv(path, index=False)
+    try:
+        with EntityResolutionEngine() as engine:
+            engine.ingest_data(path, table_name="t")
+            config = autoconfig.generate(engine, "t", threshold=0.95, max_rules=4)
+    finally:
+        os.unlink(path)
+
+    by_name = {c.name: c for c in config.columns}
+    for name in ("region", "export_row", "notes"):
+        assert not by_name[name].usable, f"{name} should not be matched on"
+
+    assert "one distinct value" in by_name["region"].reason
+    assert "unique key" in by_name["export_row"].reason
+    # Not "one distinct value": the fixable problem is that it is nearly all
+    # blank, and that is what the reason should say.
+    assert "empty" in by_name["notes"].reason
+
+
+def test_degrades_gracefully_without_strong_fields(febrl):
+    """Removing the identifier and the date should cost recall, not precision.
+
+    A tool that starts merging unrelated people when the data gets thinner is
+    worse than one that quietly finds less. False merges destroy data;
+    missed matches leave it as it was.
+    """
+    frame, truth = febrl
+    lean = frame.drop(
+        columns=[c for c in frame.columns if "soc_sec_id" in c or "date_of_birth" in c]
+    )
+    precision, recall = score(resolve(lean), truth)
+    assert precision >= 0.98, f"precision fell to {precision:.3f}"
+    assert recall >= 0.85, f"recall {recall:.3f}"
