@@ -8,7 +8,6 @@ import { createClient } from '@/utils/supabase/client'
 import { Panel, PanelContent, PanelHeader, PanelTitle } from "@/components/ui/panel"
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { motion, AnimatePresence } from "framer-motion"
 import {
     LayoutDashboard,
     Settings2,
@@ -637,14 +636,20 @@ export default function ProjectPage() {
                             </div>
                         </div>
 
-                        <AnimatePresence mode="wait">
-                            <motion.div
-                                key={activePhase}
-                                initial={{ opacity: 0, y: 5 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -5 }}
-                                transition={{ duration: 0.15 }}
-                            >
+                        {/*
+                          * Deliberately not animated.
+                          *
+                          * This was an AnimatePresence with mode="wait", which
+                          * holds the incoming phase until the outgoing one
+                          * finishes exiting. The exit never completed, so the
+                          * previous phase stayed mounted at opacity 0 and the
+                          * new one never rendered: switching phases left the
+                          * entire workspace blank with no error.
+                          *
+                          * A 150ms fade is not worth that risk, and phase
+                          * switching feels faster without it.
+                          */}
+                        <div key={activePhase}>
                                 {activePhase === 'profile' && (
                                     <div className="space-y-6">
                                         {/* Primary Key Selection - Must be done first */}
@@ -658,6 +663,7 @@ export default function ProjectPage() {
 
                                         {isDataLoaded ? (
                                             <DataManager
+                                                dataReady={isDataLoaded}
                                                 tableName={activeDataset?.name.replace(/[^a-zA-Z0-9_]/g, '_') || ''}
                                                 onDataLoaded={(rowCount, cols) => {
                                                     setDataColumns(cols)
@@ -923,8 +929,7 @@ export default function ProjectPage() {
                                         </Tabs>
                                     </div>
                                 )}
-                            </motion.div>
-                        </AnimatePresence>
+                        </div>
                     </div>
                 </main>
             </div>

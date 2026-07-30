@@ -18,9 +18,18 @@ interface DataManagerProps {
     tableName: string
     onDataLoaded?: (rowCount: number, columns: string[]) => void
     dataView?: 'raw' | 'cleaned'  // New prop to toggle view
+    /**
+     * Whether the parent has finished restoring the table into DuckDB.
+     *
+     * DuckDB-WASM is in-memory, so a page refresh empties it and the parent
+     * has to re-download and rebuild the table. Without this the preview
+     * queried first, found nothing, and rendered "Showing first 0 rows" with
+     * no indication that anything was still happening.
+     */
+    dataReady?: boolean
 }
 
-export function DataManager({ tableName, onDataLoaded, dataView }: DataManagerProps) {
+export function DataManager({ tableName, onDataLoaded, dataView, dataReady = true }: DataManagerProps) {
     const { duckDB, isReady } = useWasm()
     const [previewData, setPreviewData] = useState<any[]>([])
     const [columns, setColumns] = useState<string[]>([])
@@ -34,12 +43,15 @@ export function DataManager({ tableName, onDataLoaded, dataView }: DataManagerPr
         }>
     } | null>(null)
     const [isLoading, setIsLoading] = useState(false)
+    const [missing, setMissing] = useState(false)
 
     useEffect(() => {
         if (tableName && duckDB && isReady) {
             loadData()
         }
-    }, [tableName, duckDB, isReady, dataView]) // Reload when dataView changes
+        // dataReady is a dependency so the preview reloads once the parent has
+        // finished restoring the table, rather than staying empty forever.
+    }, [tableName, duckDB, isReady, dataView, dataReady])
 
     const loadData = async () => {
         if (!duckDB || !tableName) return
@@ -95,10 +107,15 @@ export function DataManager({ tableName, onDataLoaded, dataView }: DataManagerPr
 
             if (!tableExists) {
                 console.warn(`Table ${targetTable} not found in DuckDB - data may not be loaded yet`)
+                setMissing(true)
+                setPreviewData([])
+                setColumns([])
                 await conn.close()
                 setIsLoading(false)
                 return
             }
+
+            setMissing(false)
 
             // Get preview data
             const previewQuery = `SELECT * FROM "${targetTable}" LIMIT 100`
@@ -266,7 +283,7 @@ export function DataManager({ tableName, onDataLoaded, dataView }: DataManagerPr
                         </div>
                         <div className="flex gap-2">
                             <Button variant="outline" size="sm" onClick={loadData} disabled={isLoading}>
-                                <RefreshCw className={`h - 4 w - 4 mr - 2 ${isLoading ? 'animate-spin' : ''} `} />
+                                <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
                                 Refresh
                             </Button>
                             <Button variant="outline" size="sm" onClick={handleExportCSV}>
@@ -277,6 +294,29 @@ export function DataManager({ tableName, onDataLoaded, dataView }: DataManagerPr
                     </div>
                 </CardHeader>
                 <CardContent>
+                    {missing ? (
+                        // Reached whenever DuckDB has been emptied, which a page
+                        // refresh does every time. Silently showing an empty
+                        // table read as "your data vanished".
+                        <div className="rounded-lg border border-dashed border-border px-6 py-10 text-center">
+                            <p className="text-sm font-medium">This data is not loaded yet</p>
+                            <p className="mx-auto mt-1.5 max-w-md text-sm leading-relaxed text-muted-foreground">
+                                The in-browser database is emptied whenever the page
+                                reloads, so the file is being restored from local
+                                storage. If this persists, reload it by hand.
+                            </p>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="mt-4"
+                                onClick={loadData}
+                                disabled={isLoading}
+                            >
+                                <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+                                {isLoading ? "Loading" : "Reload data"}
+                            </Button>
+                        </div>
+                    ) : (
                     <div className="rounded-md border max-h-[400px] overflow-auto">
                         <Table>
                             <TableHeader>
@@ -319,6 +359,7 @@ export function DataManager({ tableName, onDataLoaded, dataView }: DataManagerPr
                             </TableBody>
                         </Table>
                     </div>
+                    )}
                 </CardContent>
             </Card>
 
