@@ -18,6 +18,23 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog'
 
+/**
+ * Quote an identifier for DuckDB.
+ *
+ * These names come from user-uploaded filenames. Interpolating them raw broke
+ * on any name containing a quote, and the backend already hardened the same
+ * pattern with quote_ident. Doubling embedded quotes is the SQL-standard
+ * escape.
+ */
+function quoteIdent(name: string): string {
+    return `"${name.replace(/"/g, '""')}"`
+}
+
+/** Escape a string literal for use in a WHERE clause. */
+function quoteLiteral(value: string): string {
+    return `'${value.replace(/'/g, "''")}'`
+}
+
 interface DataViewSelectorProps {
     datasetName: string
     onViewChange: (view: 'raw' | 'cleaned') => void
@@ -28,6 +45,7 @@ export function DataViewSelector({ datasetName, onViewChange, currentView }: Dat
     const { duckDB } = useWasm()
     const [cleanedExists, setCleanedExists] = useState(false)
     const [resetDialogOpen, setResetDialogOpen] = useState(false)
+    const [resetting, setResetting] = useState(false)
     const [resetNotice, setResetNotice] = useState<string | null>(null)
     const [stats, setStats] = useState<{
         rawRows: number
@@ -41,15 +59,19 @@ export function DataViewSelector({ datasetName, onViewChange, currentView }: Dat
             const conn = await duckDB.connect()
 
             const tableCheck = await conn.query(`
-                SELECT count(*) as cnt FROM information_schema.tables 
-                WHERE table_name = '${datasetName}_cleaned'
+                SELECT count(*) AS cnt FROM information_schema.tables
+                WHERE table_name = ${quoteLiteral(`${datasetName}_cleaned`)}
             `)
             const exists = Number(tableCheck.toArray()[0]['cnt']) > 0
             setCleanedExists(exists)
 
             if (exists) {
-                const rawCount = await conn.query(`SELECT COUNT(*) as count FROM "${datasetName}_raw"`)
-                const cleanedCount = await conn.query(`SELECT COUNT(*) as count FROM "${datasetName}_cleaned"`)
+                const rawCount = await conn.query(
+                    `SELECT COUNT(*) AS count FROM ${quoteIdent(`${datasetName}_raw`)}`
+                )
+                const cleanedCount = await conn.query(
+                    `SELECT COUNT(*) AS count FROM ${quoteIdent(`${datasetName}_cleaned`)}`
+                )
 
                 setStats({
                     rawRows: Number(rawCount.toArray()[0].count),
@@ -69,22 +91,44 @@ export function DataViewSelector({ datasetName, onViewChange, currentView }: Dat
         checkCleanedTable()
     }, [checkCleanedTable])
 
+    const handleReset = useCallback(async () => {
+        if (!duckDB) return
+        setResetting(true)
+        try {
+            const conn = await duckDB.connect()
+            try {
+                await conn.query(
+                    `DROP TABLE IF EXISTS ${quoteIdent(`${datasetName}_cleaned`)}`
+                )
+            } finally {
+                await conn.close()
+            }
+            onViewChange('raw')
+            setResetDialogOpen(false)
+            await checkCleanedTable()
+        } catch (error) {
+            setResetNotice(
+                error instanceof Error
+                    ? `Could not discard the cleaned data: ${error.message}`
+                    : 'Could not discard the cleaned data.'
+            )
+        } finally {
+            setResetting(false)
+        }
+    }, [checkCleanedTable, datasetName, duckDB, onViewChange])
+
+    // Render nothing until there is a cleaned table to switch to. This used to
+    // be a placeholder card, which held open a third of the row telling the
+    // user that a toggle they had not created yet did not exist. The parent
+    // grid collapses and the preview takes the full width instead.
     if (!cleanedExists) {
-        return (
-            <Card>
-                <CardContent className="pt-6">
-                    <p className="text-sm text-muted-foreground text-center">
-                        Apply cleaning rules to see cleaned data
-                    </p>
-                </CardContent>
-            </Card>
-        )
+        return null
     }
 
     return (
-        <Card>
+        <Card className="lg:w-64 lg:shrink-0">
             <CardHeader>
-                <CardTitle className="text-lg">Data View</CardTitle>
+                <CardTitle className="text-base">Data View</CardTitle>
                 <CardDescription>
                     Toggle between original and cleaned data
                 </CardDescription>
@@ -149,7 +193,7 @@ export function DataViewSelector({ datasetName, onViewChange, currentView }: Dat
                     onClick={() => setResetDialogOpen(true)}
                 >
                     <RotateCcw className="h-4 w-4 mr-2" />
-                    Reset to Raw Data
+                    Discard cleaned data
                 </Button>
 
                 <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
@@ -157,21 +201,18 @@ export function DataViewSelector({ datasetName, onViewChange, currentView }: Dat
                         <DialogHeader>
                             <DialogTitle>Reset cleaned data</DialogTitle>
                             <DialogDescription>
-                                This switches the workspace back to the raw view. Deleting the cleaned table is still pending implementation.
+                                Discards the cleaned table and returns to the
+                                original data. Your cleaning rules stay, so you
+                                can apply them again. The uploaded data is not
+                                affected.
                             </DialogDescription>
                         </DialogHeader>
                         <DialogFooter>
                             <Button variant="outline" onClick={() => setResetDialogOpen(false)}>
                                 Cancel
                             </Button>
-                            <Button
-                                onClick={() => {
-                                    onViewChange('raw')
-                                    setResetNotice('Switched back to the raw data view. Cleaned-table deletion is not wired up yet.')
-                                    setResetDialogOpen(false)
-                                }}
-                            >
-                                Switch to Raw View
+                            <Button onClick={handleReset} disabled={resetting}>
+                                {resetting ? 'Discarding' : 'Discard cleaned data'}
                             </Button>
                         </DialogFooter>
                     </DialogContent>

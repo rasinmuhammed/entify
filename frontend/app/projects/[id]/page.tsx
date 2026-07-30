@@ -715,6 +715,15 @@ export default function ProjectPage() {
                                             <PanelTitle>Blocking Configuration</PanelTitle>
                                         </PanelHeader>
                                         <PanelContent className="space-y-6">
+                                            <BlockingRuleBuilder
+                                                columns={workspaceColumns}
+                                                onRulesChange={setBlockingRules}
+                                                initialRules={blockingRules}
+                                                previewData={previewData}
+                                                totalRecords={activeDataset?.row_count || previewData?.length || 1000}
+                                                duckDB={duckDB}
+                                                tableName={activeDataset?.table_name || activeDataset?.name?.replace(/[^a-zA-Z0-9_]/g, '_')}
+                                            />
                                             <SmartBlockingPanel
                                                 columns={workspaceColumns}
                                                 duckDB={duckDB}
@@ -737,20 +746,11 @@ export default function ProjectPage() {
                                                     })
                                                 }}
                                             />
-                                            <BlockingRuleBuilder
-                                                columns={workspaceColumns}
-                                                onRulesChange={setBlockingRules}
-                                                initialRules={blockingRules}
-                                                previewData={previewData}
-                                                totalRecords={activeDataset?.row_count || previewData?.length || 1000}
-                                                duckDB={duckDB}
-                                                tableName={activeDataset?.table_name || activeDataset?.name?.replace(/[^a-zA-Z0-9_]/g, '_')}
-                                            />
                                             {((!activeDataset?.columns || activeDataset.columns.length === 0) &&
                                                 (!previewData || previewData.length === 0) &&
                                                 dataColumns.length === 0) && (
-                                                    <div className="text-sm text-muted-foreground p-4 bg-yellow-50 dark:bg-yellow-950/20 rounded">
-                                                         No columns detected. Please ensure your data is loaded in the Profile phase first.
+                                                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-600 dark:text-amber-400">
+                                                        No columns detected. Load your data in the Data Profile phase first.
                                                     </div>
                                                 )}
 

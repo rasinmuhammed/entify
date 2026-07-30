@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Download, ArrowLeftRight, Info } from 'lucide-react'
 import { AsyncDuckDB } from '@duckdb/duckdb-wasm'
+import { quoteIdent } from '@/lib/sql'
 
 interface DataComparisonViewerProps {
     duckDB: AsyncDuckDB | null
@@ -60,13 +61,17 @@ export function DataComparisonViewer({
             const conn = await duckDB.connect()
 
             // Load original data
-            const originalResult = await conn.query(`SELECT * FROM ${originalTableName} LIMIT 100`)
+            const originalResult = await conn.query(
+                `SELECT * FROM ${quoteIdent(originalTableName)} LIMIT 100`
+            )
             const originalRows = originalResult.toArray().map(row => row.toJSON())
             setOriginalData(originalRows)
 
             // Load cleaned data if available
             if (cleanedTableName) {
-                const cleanedResult = await conn.query(`SELECT * FROM ${cleanedTableName} LIMIT 100`)
+                const cleanedResult = await conn.query(
+                    `SELECT * FROM ${quoteIdent(cleanedTableName)} LIMIT 100`
+                )
                 const cleanedRows = cleanedResult.toArray().map(row => row.toJSON())
                 setCleanedData(cleanedRows)
 

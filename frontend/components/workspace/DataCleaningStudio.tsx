@@ -296,17 +296,15 @@ export function DataCleaningStudio({ columns, onRulesApplied }: DataCleaningStud
             </Card>
 
             {/* Data Preview Section */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div className="md:col-span-1">
-                    {activeDataset && (
-                        <DataViewSelector
-                            datasetName={activeDataset.name}
-                            currentView={viewMode}
-                            onViewChange={setViewMode}
-                        />
-                    )}
-                </div>
-                <div className="md:col-span-3">
+            <div className="flex flex-col gap-4 lg:flex-row">
+                {activeDataset && (
+                    <DataViewSelector
+                        datasetName={activeDataset.name}
+                        currentView={viewMode}
+                        onViewChange={setViewMode}
+                    />
+                )}
+                <div className="min-w-0 flex-1">
                     <Card>
                         <CardHeader>
                             <CardTitle>Data Preview</CardTitle>

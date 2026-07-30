@@ -23,6 +23,7 @@ import { SplinkVisualization } from './SplinkVisualization'
 import { DetailedClusterView } from './DetailedClusterView'
 import { AsyncDuckDB } from '@duckdb/duckdb-wasm'
 import { buildApiUrl } from '@/lib/api/client'
+import { inList, quoteIdent } from '@/lib/sql'
 
 interface Entity {
     [key: string]: any
@@ -381,15 +382,37 @@ export function ClusterVisualization({
             }
 
             // Fetch original data for these IDs
-            const idList = Array.from(allEntityIds).map(id => `'${id}'`).join(',')
+            const ids = Array.from(allEntityIds)
 
-            // Handle empty list
-            if (idList.length === 0) {
+            // originalTableName is an optional prop. Interpolating it unquoted
+            // used to produce `FROM undefined` and a confusing DuckDB error
+            // instead of naming the missing context. Copied to a local so the
+            // narrowing survives the await below.
+            const sourceTable = originalTableName
+            if (ids.length === 0 || !sourceTable) {
+                if (!sourceTable) {
+                    console.warn(
+                        'No source table for this project, so original records cannot be shown.'
+                    )
+                }
                 await conn.close()
                 return
             }
 
-            const query = `SELECT * FROM ${originalTableName} WHERE ${idColumn} IN (${idList})`
+            // idColumn is resolved through several fallbacks above and can still
+            // come back undefined if none of them match a real column.
+            if (!idColumn) {
+                console.warn('No identifier column found, so original records cannot be matched back.')
+                await conn.close()
+                return
+            }
+
+            // Identifiers and values are both quoted: table and column names
+            // come from uploaded files and routinely contain spaces, and record
+            // ids can contain apostrophes.
+            const query =
+                `SELECT * FROM ${quoteIdent(sourceTable)} ` +
+                `WHERE ${quoteIdent(idColumn)} IN ${inList(ids)}`
 
             const result = await conn.query(query)
             const rows = result.toArray().map((row: any) => row.toJSON())
