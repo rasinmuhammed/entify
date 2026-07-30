@@ -74,6 +74,11 @@ On the benchmark, automatic configuration scores **precision 0.999, recall
 less than half the candidate pairs. That is the difference between a tool for
 people who understand record linkage and one that anybody can use.
 
+**Read what you have.** CSV, TSV, Parquet, JSON, and Excel. Workbooks are
+read as text throughout, because Excel coerces long digit strings to floats
+and a phone number arriving as `8.0115652874e+11` will never match its
+counterpart.
+
 **Profile.** Row counts, distinct values and completeness per column. Missing
 data counts nulls *and* blank strings, because a column that is 40% empty
 strings is 40% empty.
@@ -165,10 +170,16 @@ the same tuned configuration:
 | 74,132  | 32.3s |     2.5 GB |
 | 185,487 |  fails |     2.5 GB |
 
-These are laptop numbers, and the failure is memory-bound rather than
-architectural: DuckDB scales vertically, so a larger machine moves the
-ceiling up. Run this benchmark on your own hardware before assuming the
-figures above apply to it.
+These are laptop numbers on an 8GB machine, and the failure is memory-bound
+rather than architectural. DuckDB scales vertically, so a larger machine moves
+the ceiling up.
+
+The original cause was a hardcoded 2GB DuckDB limit, which capped matching
+regardless of what the host actually had. The budget now defaults to 60% of
+detected system memory, is overridable with `ENTIFY_MEMORY_LIMIT`, and DuckDB
+is given a spill directory so exceeding it degrades to disk rather than
+failing outright. Run the benchmark on your own hardware before assuming these
+figures apply to it.
 
 Two limits are not fixed by a bigger machine. Memory grows faster than row
 count (3x the rows cost 4x the memory between 25,000 and 74,000), and

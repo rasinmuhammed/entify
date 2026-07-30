@@ -134,12 +134,82 @@ class RuleTranspiler:
         return " AND ".join(conditions) if conditions else None
 
 
+def detect_system_memory_gb() -> Optional[float]:
+    """Total physical memory in GB, or None if it cannot be determined.
+
+    Kept dependency-free: os.sysconf covers Linux and macOS, which is where
+    this runs. Anything else falls back to the conservative default rather
+    than guessing high and being killed by the OOM killer mid-run.
+    """
+    try:
+        pages = os.sysconf("SC_PHYS_PAGES")
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        if pages > 0 and page_size > 0:
+            return (pages * page_size) / (1024**3)
+    except (ValueError, OSError, AttributeError):
+        pass
+    return None
+
+
+def resolve_memory_limit(explicit: Optional[str] = None) -> str:
+    """Decide how much memory DuckDB may use.
+
+    Precedence: an explicit argument, then ENTIFY_MEMORY_LIMIT, then 60% of
+    detected physical memory, then 2GB.
+
+    60% leaves room for the Python process holding predictions, the model, and
+    whatever else the host is doing. Handing DuckDB everything trades a clean
+    "out of memory" for the OOM killer, which is a worse failure because it
+    takes the API down with it.
+    """
+    if explicit:
+        return explicit
+
+    from_env = os.environ.get("ENTIFY_MEMORY_LIMIT")
+    if from_env:
+        return from_env
+
+    total_gb = detect_system_memory_gb()
+    if total_gb is None:
+        return "2GB"
+
+    budget = max(1, int(total_gb * 0.6))
+    return f"{budget}GB"
+
+
 class EntityResolutionEngine:
     """Owns one DuckDB connection and, once resolved, one trained Splink model."""
 
-    def __init__(self, db_path: str = ":memory:", memory_limit: str = "2GB"):
+    def __init__(
+        self,
+        db_path: Optional[str] = None,
+        memory_limit: Optional[str] = None,
+        temp_directory: Optional[str] = None,
+    ):
+        """
+        ``memory_limit`` was previously hardcoded to 2GB, which capped matching
+        far below what the host could actually do: blocked pair generation
+        failed at around 185,000 rows on a machine with 32GB free, because
+        DuckDB had been told it only had two. It now defaults to a fraction of
+        detected system memory and is overridable via ``ENTIFY_MEMORY_LIMIT``.
+
+        ``temp_directory`` lets DuckDB spill intermediate results to disk once
+        that budget is exhausted. Without it, exceeding the limit is a hard
+        failure rather than a slowdown, which is the difference between a big
+        job taking longer and a big job not running at all.
+        """
+        db_path = db_path or os.environ.get("ENTIFY_DB_PATH") or ":memory:"
+        if db_path != ":memory:":
+            os.makedirs(os.path.dirname(os.path.abspath(db_path)) or ".", exist_ok=True)
+
         self.con = duckdb.connect(database=db_path)
-        self.con.execute(f"SET memory_limit='{memory_limit}'")
+        self.con.execute(f"SET memory_limit='{resolve_memory_limit(memory_limit)}'")
+
+        # Spilling needs somewhere to spill to. An in-memory database has no
+        # implicit temp location, so one is always set.
+        spill = temp_directory or os.environ.get("ENTIFY_TEMP_DIR") or tempfile.gettempdir()
+        os.makedirs(spill, exist_ok=True)
+        self.con.execute(f"SET temp_directory='{spill}'")
 
         self.linker: Optional[Linker] = None
         self.predictions = None
@@ -185,15 +255,64 @@ class EntityResolutionEngine:
 
         if ext == ".csv":
             reader = "read_csv_auto($path, all_varchar=false, sample_size=-1)"
+        elif ext in (".tsv", ".txt"):
+            reader = "read_csv_auto($path, delim='\\t', all_varchar=false, sample_size=-1)"
         elif ext == ".parquet":
             reader = "read_parquet($path)"
+        elif ext == ".json":
+            reader = "read_json_auto($path)"
+        elif ext in (".xlsx", ".xls"):
+            # Excel is what people actually have. DuckDB cannot read it
+            # natively, so it is converted through pandas first.
+            return self._ingest_excel(source, table_name)
         else:
-            raise EngineError(f"Unsupported file format: {ext or 'unknown'}")
+            raise EngineError(
+                f"Unsupported file format: {ext or 'unknown'}. "
+                "Supported: .csv, .tsv, .parquet, .json, .xlsx, .xls"
+            )
 
         self.con.execute(
             f"CREATE OR REPLACE TABLE {table} AS SELECT * FROM {reader}",
             {"path": source},
         )
+        self._table_name = table_name
+        return self.row_count(table_name)
+
+    def _ingest_excel(self, source: str, table_name: str) -> int:
+        """Load the first sheet of a workbook.
+
+        Everything is read as text. Excel silently coerces long digit strings
+        to floats, which turns a phone number into 8.0115652874e+11 and an
+        order reference into something that no longer matches its counterpart
+        in another file. Matching compares text, so reading as text is both
+        safer and closer to what the user sees on screen.
+        """
+        try:
+            frame = pd.read_excel(source, dtype=str, engine=None)
+        except ImportError as exc:
+            raise EngineError(
+                "Reading Excel files needs openpyxl. Install it with: "
+                "pip install openpyxl"
+            ) from exc
+        except Exception as exc:
+            raise EngineError(f"Could not read {os.path.basename(source)}: {exc}") from exc
+
+        if frame.empty:
+            raise EngineError("That workbook's first sheet has no rows.")
+
+        frame = frame.fillna("")
+        frame.columns = [str(c).strip() for c in frame.columns]
+
+        # Registered as a view, then materialised, so the frame can be released.
+        self.con.register("_excel_import", frame)
+        try:
+            self.con.execute(
+                f"CREATE OR REPLACE TABLE {quote_ident(table_name)} AS "
+                "SELECT * FROM _excel_import"
+            )
+        finally:
+            self.con.unregister("_excel_import")
+
         self._table_name = table_name
         return self.row_count(table_name)
 
