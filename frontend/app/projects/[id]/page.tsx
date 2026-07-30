@@ -425,22 +425,22 @@ export default function ProjectPage() {
     return (
         <div className="flex min-h-0 flex-1 overflow-hidden bg-background text-foreground">
             {/* Sidebar */}
-            <div className="flex w-60 shrink-0 flex-col border-r border-border bg-card">
+            <div className="hidden shrink-0 flex-col border-r border-border bg-card sm:flex sm:w-14 xl:w-60">
                 {/* Sidebar Header */}
-                <div className="flex h-14 items-center gap-2.5 border-b border-border px-4">
-                    <Logo className="h-[18px] w-[18px]" />
-                    <span className="truncate text-sm font-medium tracking-[-0.01em]">
+                <div className="flex h-14 items-center gap-2.5 border-b border-border px-4 xl:px-4">
+                    <Logo className="h-[18px] w-[18px] shrink-0" />
+                    <span className="hidden truncate text-sm font-medium tracking-[-0.01em] xl:inline">
                         {activeProject.name}
                     </span>
                 </div>
 
                 {/* Phase Navigation */}
                 <div className="flex-1 space-y-0.5 overflow-y-auto p-2">
-                    <div className="px-3 pb-2 pt-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                    <div className="hidden px-3 pb-2 pt-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground xl:block">
                         Workflow
                     </div>
                     {lockedNotice && (
-                        <p className="mx-1 mb-2 rounded-lg border border-border bg-muted/50 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+                        <p className="mx-1 mb-2 hidden rounded-lg border border-border bg-muted/50 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground xl:block">
                             {lockedNotice}
                         </p>
                     )}
@@ -469,14 +469,25 @@ export default function ProjectPage() {
                                 }}
                                 disabled={isLocked}
                                 className={[
-                                    "group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] transition-colors",
+                                    "group flex w-full items-center gap-2.5 rounded-lg py-2 text-[13px] transition-colors",
+                                    "justify-center px-0 xl:justify-start xl:px-2.5",
                                     isActive
                                         ? "bg-secondary font-medium text-secondary-foreground"
                                         : isLocked
                                             ? "cursor-not-allowed text-muted-foreground/45"
                                             : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
                                 ].join(" ")}
-                                title={isLocked ? validation.reason : undefined}
+                                // On the collapsed rail the visible content is
+                                // a bare step number, so the label has to come
+                                // from somewhere: a tooltip for pointer users
+                                // and an accessible name for everyone else.
+                                title={
+                                    isLocked
+                                        ? `${phase.label}: ${validation.reason}`
+                                        : phase.label
+                                }
+                                aria-label={phase.label}
+                                aria-current={isActive ? "step" : undefined}
                             >
                                 {/* The step number carries the sequence; the
                                     icon alone never said which came first. */}
@@ -497,20 +508,22 @@ export default function ProjectPage() {
                                     )}
                                 </span>
 
-                                <Icon className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                                <span className="flex-1 truncate text-left">{phase.label}</span>
+                                <Icon className="hidden h-3.5 w-3.5 shrink-0 opacity-70 xl:block" />
+                                <span className="hidden flex-1 truncate text-left xl:block">
+                                    {phase.label}
+                                </span>
 
                                 {isActive && !status?.complete && (
-                                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/60" />
+                                    <span className="hidden h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/60 xl:block" />
                                 )}
-                                {isLocked && <Lock className="h-3 w-3 shrink-0" />}
+                                {isLocked && <Lock className="hidden h-3 w-3 shrink-0 xl:block" />}
                             </button>
                         )
                     })}
                 </div>
 
                 {/* User Profile */}
-                <div className="border-t border-border p-3">
+                <div className="hidden border-t border-border p-3 xl:block">
                     <div className="flex items-center gap-2.5">
                         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border bg-secondary text-[11px] font-medium">
                             {user.name.slice(0, 2).toUpperCase()}
@@ -526,18 +539,31 @@ export default function ProjectPage() {
             {/* Main Content Area */}
             <div className="flex-1 flex flex-col min-w-0 bg-muted/10">
                 {/* Top Navigation Bar */}
-                <header className="h-14 border-b border-border bg-card flex items-center justify-between px-6 shadow-sm">
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <span className="hover:text-foreground cursor-pointer" onClick={() => router.push('/vault')}>Vault</span>
-                        <ChevronRight className="w-4 h-4" />
-                        <span className="font-medium text-foreground flex items-center gap-2">
-                            <Database className="w-4 h-4" />
-                            {activeProject.name}
+                {/* The breadcrumb shrinks and truncates; the actions never do.
+                    Previously both sides sized to content, so a long project
+                    name pushed Run Pipeline off the right edge. */}
+                <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-card px-4 sm:px-6">
+                    <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
+                        <button
+                            onClick={() => router.push('/vault')}
+                            className="hidden shrink-0 transition-colors hover:text-foreground sm:inline"
+                        >
+                            Vault
+                        </button>
+                        <ChevronRight className="hidden h-4 w-4 shrink-0 sm:block" />
+                        <span className="flex min-w-0 items-center gap-2 font-medium text-foreground">
+                            <Database className="h-4 w-4 shrink-0" />
+                            <span className="truncate">{activeProject.name}</span>
                         </span>
-                        <Badge variant="outline" className="ml-2 text-xs font-normal">{activeProject.status}</Badge>
+                        <Badge
+                            variant="outline"
+                            className="ml-1 hidden shrink-0 text-xs font-normal md:inline-flex"
+                        >
+                            {activeProject.status}
+                        </Badge>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex shrink-0 items-center gap-2">
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                                 <Button variant="ghost" size="sm" className="h-8 w-8 p-0">

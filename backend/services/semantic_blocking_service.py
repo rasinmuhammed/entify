@@ -35,8 +35,18 @@ def _load_semantic_deps():
 
 
 def semantic_extras_available() -> bool:
-    """Whether semantic blocking can run, without importing the stack."""
+    """Whether semantic blocking can run, without importing the stack.
+
+    ENTIFY_DISABLE_SEMANTIC turns the feature off even when the packages are
+    present. Useful for an operator who wants to cap memory use on a shared
+    box, and it makes the "not installed" path testable without uninstalling
+    anything.
+    """
     import importlib.util
+    import os
+
+    if os.environ.get("ENTIFY_DISABLE_SEMANTIC", "").lower() in ("1", "true", "yes"):
+        return False
 
     return all(
         importlib.util.find_spec(name) is not None

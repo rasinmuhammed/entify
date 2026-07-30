@@ -11,6 +11,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Loader2, Sparkles, Check, Database } from "lucide-react"
 import { AsyncDuckDB } from "@duckdb/duckdb-wasm"
 import { buildApiUrl } from "@/lib/api/client"
+import { useBackendCapabilities } from "@/lib/api/useBackendCapabilities"
 
 export interface SemanticSuggestion {
     column: string
@@ -38,6 +39,10 @@ export function SmartBlockingPanel({
     tableName,
     onApplySuggestion
 }: SmartBlockingPanelProps) {
+    // Semantic blocking is an optional install. Offering the control when the
+    // backend cannot serve it turns an uninstalled extra into what looks like
+    // a broken feature.
+    const { capabilities, loading: checkingCapabilities } = useBackendCapabilities()
     const [selectedColumns, setSelectedColumns] = useState<string[]>([])
     const [threshold, setThreshold] = useState(0.85)
     const [sampleSize, setSampleSize] = useState(5000)
@@ -131,6 +136,39 @@ export function SmartBlockingPanel({
         } finally {
             setLoading(false)
         }
+    }
+
+    const unavailable = !checkingCapabilities && !capabilities.semanticBlocking
+
+    if (unavailable) {
+        return (
+            <Card className="border-dashed">
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-base">
+                        <Sparkles className="h-4 w-4 text-muted-foreground" />
+                        Smart Semantic Blocking
+                    </CardTitle>
+                    <CardDescription>
+                        Not installed. This groups values by meaning rather than
+                        spelling, so <span className="font-medium">IBM</span> and{" "}
+                        <span className="font-medium">International Business Machines</span>{" "}
+                        can share a block.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <p className="text-sm leading-relaxed text-muted-foreground">
+                        It is an optional extra because it pulls in around 600MB
+                        of machine learning dependencies. Everything else works
+                        without it.
+                    </p>
+                    <pre className="mt-3 overflow-x-auto rounded-lg border border-border bg-muted/40 px-3 py-2 font-mono text-xs text-muted-foreground">
+pip install -r backend/requirements-semantic.txt</pre>
+                    <p className="mt-2 text-xs text-muted-foreground/70">
+                        Restart the backend afterwards.
+                    </p>
+                </CardContent>
+            </Card>
+        )
     }
 
     return (
