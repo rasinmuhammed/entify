@@ -7,8 +7,8 @@ export the deduplicated result.
 Built on [Splink 4](https://github.com/moj-analytical-services/splink) (the UK
 Ministry of Justice's probabilistic record linkage library) and DuckDB.
 
-**Measured accuracy: precision 0.999, recall 0.943 (F1 0.970)** against a
-labelled benchmark of 3,671 records with known duplicates. See
+**Measured accuracy on FEBRL, a published record linkage benchmark: precision
+1.000, recall 0.987**, configuring itself with no hand-tuning. See
 [Benchmark](#benchmark) to reproduce it.
 
 ---
@@ -96,15 +96,11 @@ proposes blocking rules, measures how many pairs each one actually generates,
 and keeps the set that fits a comparison budget. Every decision carries a
 stated reason and can be overridden.
 
-On the benchmark, automatic configuration scores **precision 0.999, recall
-0.943 (F1 0.970)**, better than the hand-tuned config below, while scoring
-less than half the candidate pairs. That is the difference between a tool for
+On FEBRL, an external benchmark it was never tuned for, automatic
+configuration scores **precision 1.000, recall 0.987**. On the generated
+benchmark it beats the hand-tuned config below while scoring less than half
+the candidate pairs. That is the difference between a tool for
 people who understand record linkage and one that anybody can use.
-
-**Read what you have.** CSV, TSV, Parquet, JSON, and Excel. Workbooks are
-read as text throughout, because Excel coerces long digit strings to floats
-and a phone number arriving as `8.0115652874e+11` will never match its
-counterpart.
 
 **Read what you have.** CSV, TSV, Parquet, JSON, and Excel. Workbooks are
 read as text throughout, because Excel coerces long digit strings to floats
@@ -188,6 +184,37 @@ About 1–2.5 seconds end to end.
 Duplicate records in the generator are given a *different* signup date from
 their original. Copying it verbatim would hand the matcher a near-perfect
 identifier and inflate every number in this table.
+
+### FEBRL: an external benchmark
+
+The numbers above come from data this project generates itself, which shows
+the pipeline is internally consistent but not that it generalises. FEBRL is a
+published dataset used widely in the record linkage literature, distributed
+with Splink, and nothing here was tuned for it.
+
+The run is fully automatic. No blocking rules, comparisons or thresholds are
+supplied: Entify is handed an unfamiliar CSV and works out how to match it.
+
+```bash
+./.venv/bin/python scripts/benchmark_febrl.py
+```
+
+5,000 records covering 2,000 people, with 6,538 true duplicate pairs:
+
+| Variant                    | Precision | Recall |    F1 | Time |
+| -------------------------- | --------- | ------ | ----- | ---- |
+| As published               |     1.000 |  0.999 | 1.000 | 2.8s |
+| Without `soc_sec_id`       |     1.000 |  0.987 | 0.993 | 2.3s |
+
+The second row is the one worth reading. FEBRL3 carries `soc_sec_id`, which
+survives nearly intact across duplicates and is close to a unique key. Any
+matcher looks strong when one column gives the answer away, and plenty of real
+datasets have no such column. Removing it forces matching to work from names,
+addresses and dates alone, and precision holds at 1.000 while recall falls
+only to 0.987.
+
+Both variants are asserted as floors in `tests/test_external_benchmark.py`,
+which skips rather than fails when the dataset cannot be fetched.
 
 ### Scaling
 

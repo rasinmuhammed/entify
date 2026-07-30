@@ -91,6 +91,7 @@ def build_comparison(comp: dict) -> Any:
     produced the ZeroDivisionError in Splink: a dict with fewer than two
     comparison levels makes the library divide by ``num_levels - 1``.
     """
+    from splink import ColumnExpression
     from splink.comparison_library import (
         ExactMatch,
         JaccardAtThresholds,
@@ -101,6 +102,21 @@ def build_comparison(comp: dict) -> Any:
     column = comp.get("output_column_name")
     if not column:
         raise EngineError("Comparison is missing 'output_column_name'")
+
+    def as_text(name: str) -> Any:
+        """Cast a column to text for string-similarity comparisons.
+
+        DuckDB infers types from the file, so a column of digits (a social
+        security number, an account reference, a postcode) arrives as BIGINT.
+        The string similarity functions only accept VARCHAR, and the run fails
+        with "No function matches jaro_winkler_similarity(BIGINT, BIGINT)".
+
+        Found by running FEBRL, where soc_sec_id is all digits. Casting is the
+        right answer rather than skipping those columns: an identifier that
+        happens to be numeric is often the strongest matching signal there is,
+        and comparing it as text is what the user meant.
+        """
+        return ColumnExpression(name).cast_to_string()
 
     method = comp.get("comparison_library_name")
     raw_threshold = comp.get("threshold")
@@ -115,7 +131,7 @@ def build_comparison(comp: dict) -> Any:
         else:
             primary = _clamp(threshold, 0.5, 0.99)
             levels = sorted({primary, _clamp(primary - 0.1, 0.5, 0.99)}, reverse=True)
-        return JaroWinklerAtThresholds(column, levels)
+        return JaroWinklerAtThresholds(as_text(column), levels)
 
     if method == "jaccard_at_thresholds":
         if threshold is None:
@@ -123,7 +139,7 @@ def build_comparison(comp: dict) -> Any:
         else:
             primary = _clamp(threshold, 0.4, 0.99)
             levels = sorted({primary, _clamp(primary - 0.2, 0.4, 0.99)}, reverse=True)
-        return JaccardAtThresholds(column, levels)
+        return JaccardAtThresholds(as_text(column), levels)
 
     if method == "levenshtein_at_thresholds":
         # Levenshtein takes edit distances, not similarities. A value below 1
@@ -133,17 +149,17 @@ def build_comparison(comp: dict) -> Any:
         else:
             primary = int(threshold)
             distances = sorted({primary, primary + 1})
-        return LevenshteinAtThresholds(column, distances)
+        return LevenshteinAtThresholds(as_text(column), distances)
 
     # Legacy configs: infer the method from the generated SQL.
     for level in comp.get("comparison_levels") or []:
         sql = (level.get("sql_condition") or "").lower()
         if "jaro_winkler" in sql:
-            return JaroWinklerAtThresholds(column, [0.9, 0.7])
+            return JaroWinklerAtThresholds(as_text(column), [0.9, 0.7])
         if "jaccard" in sql:
-            return JaccardAtThresholds(column, [0.9, 0.7])
+            return JaccardAtThresholds(as_text(column), [0.9, 0.7])
         if "levenshtein" in sql:
-            return LevenshteinAtThresholds(column, [1, 2])
+            return LevenshteinAtThresholds(as_text(column), [1, 2])
 
     return ExactMatch(column)
 
