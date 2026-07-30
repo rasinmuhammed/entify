@@ -13,8 +13,35 @@ from typing import Any, Dict, List, Optional
 import duckdb
 import numpy as np
 import pandas as pd
-from sentence_transformers import SentenceTransformer
-from sklearn.neighbors import NearestNeighbors
+
+# sentence-transformers pulls in torch, which is over half a gigabyte and adds
+# seconds to startup. Semantic blocking is an optional feature, so the import
+# happens when it is used rather than when the API boots. Installing the base
+# requirements no longer costs a deep learning stack.
+SEMANTIC_EXTRA_HINT = (
+    "Semantic blocking needs the optional extras. Install them with: "
+    "pip install -r requirements-semantic.txt"
+)
+
+
+def _load_semantic_deps():
+    """Import the ML stack, or explain how to install it."""
+    try:
+        from sentence_transformers import SentenceTransformer
+        from sklearn.neighbors import NearestNeighbors
+    except ImportError as exc:
+        raise RuntimeError(SEMANTIC_EXTRA_HINT) from exc
+    return SentenceTransformer, NearestNeighbors
+
+
+def semantic_extras_available() -> bool:
+    """Whether semantic blocking can run, without importing the stack."""
+    import importlib.util
+
+    return all(
+        importlib.util.find_spec(name) is not None
+        for name in ("sentence_transformers", "sklearn")
+    )
 
 
 class _UnionFind:
@@ -95,6 +122,7 @@ class SemanticBlockingService:
 
         dataset_fingerprint = hashlib.sha256(data_csv.encode("utf-8")).hexdigest()
 
+        SentenceTransformer, NearestNeighbors = _load_semantic_deps()
         model = SentenceTransformer(model_name)
         suggestions: List[Dict[str, Any]] = []
 

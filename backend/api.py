@@ -32,9 +32,17 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import autoconfig  # noqa: E402
 from auditor import Auditor, CostAssumption, build_audit_input  # noqa: E402
-from engine import EngineError, EntityResolutionEngine  # noqa: E402
+from engine import (  # noqa: E402
+    EngineError,
+    EntityResolutionEngine,
+    resolve_memory_limit,
+)
 from sample_data import generate as generate_sample  # noqa: E402
-from services.semantic_blocking_service import SemanticBlockingService  # noqa: E402
+from services.semantic_blocking_service import (  # noqa: E402
+    SEMANTIC_EXTRA_HINT,
+    SemanticBlockingService,
+    semantic_extras_available,
+)
 from services.splink_service import (  # noqa: E402
     EntityResolutionRequest,
     EntityResolutionResponse,
@@ -165,6 +173,11 @@ async def health_check():
         "python_version": sys.version.split()[0],
         "has_results": bool(engine and engine.has_predictions),
         "max_upload_mb": MAX_UPLOAD_BYTES // 1024 // 1024,
+        # Surfaced so a self-hosted install can tell at a glance what it can
+        # do, rather than discovering a missing extra when a request fails.
+        "memory_limit": resolve_memory_limit(),
+        "semantic_blocking_available": semantic_extras_available(),
+        "supported_formats": [".csv", ".tsv", ".parquet", ".json", ".xlsx", ".xls"],
     }
 
 
@@ -294,6 +307,11 @@ class SemanticSuggestionRequest(BaseModel):
 
 @app.post("/api/blocking/suggestions")
 async def generate_blocking_suggestions(request: SemanticSuggestionRequest):
+    # Semantic blocking is an optional extra. Say so plainly instead of
+    # surfacing an ImportError from three frames down.
+    if not semantic_extras_available():
+        raise HTTPException(status_code=501, detail=SEMANTIC_EXTRA_HINT)
+
     csv_data = decode_base64_csv(request.data)
     result = await asyncio.to_thread(
         handle_engine_call,

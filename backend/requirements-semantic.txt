@@ -1,0 +1,16 @@
+# Optional: semantic blocking.
+#
+# Groups candidate records by meaning rather than by string similarity, which
+# catches pairs that share no characters. "IBM" and "International Business
+# Machines" is the canonical example.
+#
+# Kept separate because it pulls in torch. That is roughly 600MB of download
+# and several seconds added to every process start, which is a poor default
+# for a feature many runs never use. The semantic endpoints report clearly
+# that the extras are missing rather than failing on an ImportError.
+#
+# Install with:
+#   pip install -r requirements.txt -r requirements-semantic.txt
+
+sentence-transformers==5.4.0
+scikit-learn==1.8.0

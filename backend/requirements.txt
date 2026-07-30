@@ -1,3 +1,11 @@
+# Core requirements. Everything needed to profile, match, cluster, merge and
+# produce an audit report.
+#
+# Deliberately excludes the semantic blocking stack. sentence-transformers
+# pulls in torch, which is over half a gigabyte and adds seconds to every
+# start, for a feature most runs never touch. Install
+# requirements-semantic.txt as well if you want it.
+
 splink==4.0.16
 duckdb==1.5.1
 pandas==3.0.2
@@ -5,6 +13,10 @@ fastapi==0.135.3
 uvicorn==0.44.0
 python-multipart==0.0.26
 pydantic==2.12.5
-sentence-transformers==5.4.0
-scikit-learn==1.8.0
+
+# Reading .xlsx workbooks, which is what most people actually have.
 openpyxl==3.1.5
+
+# The PDF audit report. Was previously imported by auditor.py without being
+# declared here, so a clean install failed the moment anyone hit /api/audit.
+fpdf2==2.8.7

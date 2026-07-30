@@ -1,0 +1,50 @@
+# Entify, self-hosted.
+#
+#   docker compose up
+#
+# Then open http://localhost:3000. No accounts, no API keys, no external
+# services. Projects persist to browser storage and matching runs in the
+# backend container, so nothing you upload leaves the machine.
+#
+# To include semantic blocking (adds ~600MB for the torch stack):
+#   SEMANTIC=1 docker compose build backend && docker compose up
+
+services:
+  backend:
+    build:
+      context: ./backend
+      args:
+        SEMANTIC: ${SEMANTIC:-0}
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      # Named volume, not a bind mount: the DuckDB file needs consistent
+      # ownership, and bind mounts on macOS and Windows are slow enough to
+      # matter for a database doing real work.
+      - entify-data:/data
+    environment:
+      # 60% of detected memory by default. Set this if the container has a
+      # cgroup limit lower than the host, since detection reads the host.
+      ENTIFY_MEMORY_LIMIT: ${ENTIFY_MEMORY_LIMIT:-}
+      ENTIFY_MAX_UPLOAD_MB: ${ENTIFY_MAX_UPLOAD_MB:-100}
+      ENTIFY_CORS_ORIGINS: http://localhost:3000
+      ENTIFY_LOG_LEVEL: ${ENTIFY_LOG_LEVEL:-INFO}
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # The browser calls the backend directly, so this is the address as
+        # seen from the browser, not from inside the compose network. Using a
+        # service name here would break every request.
+        NEXT_PUBLIC_API_URL: ${ENTIFY_PUBLIC_API_URL:-http://localhost:8000}
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  entify-data:

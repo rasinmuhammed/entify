@@ -15,7 +15,18 @@ labelled benchmark of 3,671 records with known duplicates. See
 
 ## Quickstart
 
-Two commands. No accounts, no API keys, no database to provision.
+One command. No accounts, no API keys, no external services, and nothing you
+upload leaves the machine.
+
+```bash
+docker compose up
+```
+
+Open http://localhost:3000. Both ports bind to `127.0.0.1` rather than all
+interfaces, so a laptop on a shared network is not quietly serving your
+customer data to it.
+
+### Running it without Docker
 
 ```bash
 cd backend && pip install -r requirements.txt && uvicorn api:app --port 8000
@@ -25,8 +36,24 @@ cd backend && pip install -r requirements.txt && uvicorn api:app --port 8000
 cd frontend && npm install && npm run dev
 ```
 
-Open http://localhost:3000. The app starts in **demo mode**: no sign-in, and
-projects persist to browser localStorage.
+The app starts in **demo mode**: no sign-in, and projects persist to browser
+localStorage.
+
+### Optional extras
+
+Semantic blocking groups records by meaning rather than spelling, so `IBM` and
+`International Business Machines` can land in the same block. It is not
+installed by default because it pulls in torch, roughly 600MB of download and
+several seconds added to every start, for a feature many runs never touch.
+
+```bash
+pip install -r backend/requirements-semantic.txt   # local
+SEMANTIC=1 docker compose build backend            # docker
+```
+
+`GET /api/health` reports whether the extras are present, the memory budget in
+use, and which file formats are supported, so you can tell what an install can
+do without triggering a failure to find out.
 
 To try it against data with known duplicates, grab the generated sample:
 
@@ -214,8 +241,30 @@ frontend/
   lib/               API client, local persistence shim, config detection
 ```
 
-**Stack:** FastAPI, Splink 4, DuckDB, pandas, sentence-transformers · Next.js
-16, React 19, TypeScript, Tailwind, DuckDB-WASM.
+**Stack:** FastAPI, Splink 4, DuckDB, pandas · Next.js 16, React 19,
+TypeScript, Tailwind, DuckDB-WASM. Semantic blocking adds
+sentence-transformers as an optional extra.
+
+### Why there is no hosted database
+
+Entify deliberately has no managed Postgres dependency, Neon or otherwise.
+
+Matching runs in DuckDB, which is columnar and embedded and is the reason a
+few hundred thousand rows resolve in seconds. A row-oriented transactional
+database would be the wrong engine for the work and would not replace DuckDB
+anyway. The only thing a hosted database would hold is project and dataset
+metadata, which is kilobytes.
+
+Paying for that with a cloud account, connection strings and an egress path
+would break the property the tool is built around: you can run it on your own
+machine and your customer data never leaves. That is not a limitation to be
+engineered away, it is most of the reason to choose this over a SaaS
+alternative.
+
+Local durability comes from DuckDB itself. Set `ENTIFY_DB_PATH` to a file and
+state survives restarts; leave it unset and everything stays in memory. Hosted
+Postgres becomes the right answer only if Entify is ever run as a multi-tenant
+service, and that is a different product.
 
 Four rules the backend follows, each of which was a real bug at some point:
 

@@ -1,10 +1,10 @@
-from sentence_transformers import SentenceTransformer
-from sklearn.neighbors import NearestNeighbors
+from services.semantic_blocking_service import _load_semantic_deps
 import pandas as pd
 import numpy as np
 
 class SemanticMatcher:
     def __init__(self, model_name='all-MiniLM-L6-v2'):
+        SentenceTransformer, _ = _load_semantic_deps()
         self.model = SentenceTransformer(model_name)
         self.index = None
         self.names = []
@@ -16,6 +16,7 @@ class SemanticMatcher:
         self.names = list(set(names)) # Unique names
         embeddings = self.model.encode(self.names)
         
+        _, NearestNeighbors = _load_semantic_deps()
         self.index = NearestNeighbors(n_neighbors=5, metric='cosine')
         self.index.fit(embeddings)
         
