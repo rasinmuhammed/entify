@@ -978,10 +978,14 @@ export default function ProjectPage() {
                                                     matches={results}
                                                     threshold={0.5}
                                                     duckDB={duckDB}
-                                                    // Queried against the backend, so it must be the
-                                                    // backend's table. A browser-side name here made the
-                                                    // cluster table view fail the same way export did.
-                                                    originalTableName={BACKEND_RESULTS_TABLE}
+                                                    // The component talks to both databases, so it needs
+                                                    // both names. One prop for both could only ever be
+                                                    // right for one of them.
+                                                    backendTableName={BACKEND_RESULTS_TABLE}
+                                                    browserTableName={
+                                                        activeDataset?.table_name
+                                                        || activeDataset?.name?.replace(/[^a-zA-Z0-9_]/g, "_")
+                                                    }
                                                     filterSize={clusterSizeFilter}
                                                     primaryKeyColumn={primaryKey || undefined}
                                                     onExport={async () => {

@@ -53,8 +53,15 @@ interface ClusterVisualizationProps {
     matches: any[] // Accept raw Splink output
     threshold?: number
     onExport?: () => void
-    duckDB?: AsyncDuckDB | null  // For fetching original data
-    originalTableName?: string
+    duckDB?: AsyncDuckDB | null
+    /**
+     * Two databases, two names. `originalTableName` was used for both and
+     * could only ever be right for one of them: pointed at the backend it
+     * fixed export and broke the browser lookup with "Table with name
+     * input_data does not exist", pointed at the browser it did the reverse.
+     */
+    backendTableName?: string
+    browserTableName?: string
     filterSize?: { min: number; max: number } | null
     primaryKeyColumn?: string  // User-confirmed primary key column
 }
@@ -64,7 +71,8 @@ export function ClusterVisualization({
     threshold = 0.5,
     onExport,
     duckDB,
-    originalTableName,
+    backendTableName,
+    browserTableName,
     filterSize,
     primaryKeyColumn
 }: ClusterVisualizationProps) {
@@ -80,13 +88,13 @@ export function ClusterVisualization({
 
     // Fetch table data when tab is selected
     useEffect(() => {
-        if (viewMode === 'table' && tableData.length === 0 && originalTableName) {
+        if (viewMode === 'table' && tableData.length === 0 && backendTableName) {
             const fetchTableData = async () => {
                 setIsLoadingTable(true)
                 setError(null)
                 try {
                     const params = new URLSearchParams({
-                        table_name: originalTableName,
+                        table_name: backendTableName,
                         threshold: minScore.toString(),
                         id_column: primaryKeyColumn || 'unique_id'
                     })
@@ -114,7 +122,7 @@ export function ClusterVisualization({
             }
             fetchTableData()
         }
-    }, [viewMode, originalTableName, minScore, primaryKeyColumn, tableData.length])
+    }, [viewMode, backendTableName, minScore, primaryKeyColumn, tableData.length])
 
     // Parse matches into structured format
     const matches = useMemo(() => {
@@ -311,13 +319,13 @@ export function ClusterVisualization({
 
     // Fetch original data from DuckDB if available
     useEffect(() => {
-        if (duckDB && originalTableName && clusters.length > 0) {
+        if (duckDB && browserTableName && clusters.length > 0) {
             fetchOriginalData()
         }
-    }, [duckDB, originalTableName, clusters])
+    }, [duckDB, browserTableName, clusters])
 
     const fetchOriginalData = async () => {
-        if (!duckDB || !originalTableName) return
+        if (!duckDB || !browserTableName) return
 
         try {
             const conn = await duckDB.connect()
@@ -327,7 +335,7 @@ export function ClusterVisualization({
 
             if (primaryKeyColumn) {
                 // Verify the column exists in the table
-                const info = await conn.query(`PRAGMA table_info('${originalTableName}')`)
+                const info = await conn.query(`PRAGMA table_info('${browserTableName}')`)
                 const columns = info.toArray().map((r: any) => r.name)
 
                 if (columns.includes(primaryKeyColumn)) {
@@ -340,7 +348,7 @@ export function ClusterVisualization({
 
             // Auto-detect if not confirmed or verification failed
             if (!idColumn) {
-                const info = await conn.query(`PRAGMA table_info('${originalTableName}')`)
+                const info = await conn.query(`PRAGMA table_info('${browserTableName}')`)
                 const columns = info.toArray().map((r: any) => r.name)
 
                 // Try to find the ID column with various common names
@@ -384,11 +392,11 @@ export function ClusterVisualization({
             // Fetch original data for these IDs
             const ids = Array.from(allEntityIds)
 
-            // originalTableName is an optional prop. Interpolating it unquoted
+            // browserTableName is an optional prop. Interpolating it unquoted
             // used to produce `FROM undefined` and a confusing DuckDB error
             // instead of naming the missing context. Copied to a local so the
             // narrowing survives the await below.
-            const sourceTable = originalTableName
+            const sourceTable = browserTableName
             if (ids.length === 0 || !sourceTable) {
                 if (!sourceTable) {
                     console.warn(
@@ -780,7 +788,7 @@ export function ClusterVisualization({
                 isOpen={showClusterDetail}
                 onClose={() => setShowClusterDetail(false)}
                 cluster={selectedCluster !== null ? clusters.find(c => c.id === selectedCluster) || null : null}
-                tableName={originalTableName?.replace('_original', '')}
+                tableName={backendTableName}
             />
         </div>
     )

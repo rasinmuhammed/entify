@@ -439,6 +439,14 @@ class EntityResolutionEngine:
             settings["unique_id_column_name"] = primary_key_column
         self._unique_id_column = settings.get("unique_id_column_name", "unique_id")
 
+        # Splink drops the per-field Bayes factors unless asked to keep them,
+        # and without those the waterfall chart and the comparison viewer both
+        # refuse to render. Explaining why two records matched is the point of
+        # this product, so the columns are retained by default and a caller who
+        # cares more about memory than about explanations can still say no.
+        settings.setdefault("retain_intermediate_calculation_columns", True)
+        settings.setdefault("retain_matching_columns", True)
+
         settings["comparisons"] = self._validate_comparisons(settings.get("comparisons") or [])
         if not settings["comparisons"]:
             raise EngineError(
@@ -1018,11 +1026,17 @@ class EntityResolutionEngine:
             logger.warning("Chart generation failed: %s", exc)
             return None
 
+    # Splink 4 moved every chart off the Linker and onto linker.visualisations.
+    # Calling them on the Linker raises AttributeError, which surfaced as a 500
+    # from the chart endpoints once a match had actually run: before that the
+    # endpoints returned 409 for having no model, so the breakage was invisible
+    # until the exact moment a user reached the results screen.
+
     def get_match_weights_chart_data(self):
         if self.linker is None:
             return None
         try:
-            return self.linker.match_weights_chart()
+            return self.linker.visualisations.match_weights_chart()
         except Exception as exc:
             logger.warning("match_weights_chart failed: %s", exc)
             return None
@@ -1030,28 +1044,50 @@ class EntityResolutionEngine:
     def get_match_weights_chart(self) -> Optional[str]:
         if self.linker is None:
             return None
-        return self._chart_html(self.linker.match_weights_chart)
+        return self._chart_html(self.linker.visualisations.match_weights_chart)
 
     def get_parameter_estimates_chart(self) -> Optional[str]:
         if self.linker is None:
             return None
-        return self._chart_html(self.linker.parameter_estimate_comparisons_chart)
+        return self._chart_html(
+            self.linker.visualisations.parameter_estimate_comparisons_chart
+        )
 
     def get_threshold_selection_chart(self) -> Optional[str]:
         if self.linker is None or not self.has_predictions:
             return None
+        # No threshold tool in the visualisations namespace; the histogram of
+        # match weights is what supports choosing a threshold.
         return self._chart_html(
-            lambda: self.linker.threshold_selection_tool_from_predictions_df(self.predictions)
+            lambda: self.linker.visualisations.match_weights_histogram(self.predictions)
         )
 
     def get_comparison_viewer_dashboard(self) -> Optional[str]:
+        """The dashboard writes a file rather than returning a chart object.
+
+        Unlike the other visualisations it has no in-memory form: passing
+        out_path=None fails inside Splink on os.stat. So it is written to a
+        temp file, read back, and the file removed.
+        """
         if self.linker is None or not self.has_predictions:
             return None
-        return self._chart_html(
-            lambda: self.linker.comparison_viewer_dashboard(
-                self.predictions, out_path=None, overwrite=True, num_example_rows=10
+
+        handle, path = tempfile.mkstemp(suffix=".html", prefix="entify_viewer_")
+        os.close(handle)
+        try:
+            self.linker.visualisations.comparison_viewer_dashboard(
+                self.predictions, out_path=path, overwrite=True, num_example_rows=10
             )
-        )
+            with open(path, encoding="utf-8") as fh:
+                return fh.read()
+        except Exception as exc:
+            logger.warning("Comparison viewer failed: %s", exc)
+            return None
+        finally:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
 
     def get_waterfall_chart(self, record_id_1: str, record_id_2: str) -> Optional[str]:
         """Explain a single pair: which fields contributed how much evidence."""
@@ -1076,4 +1112,12 @@ class EntityResolutionEngine:
             )
             return None
 
-        return self._chart_html(lambda: self.linker.waterfall_chart(records))
+        # The chart wants a *scored* pair, not two raw rows. Passing the rows
+        # straight through raised KeyError('gamma_first_name'), because the
+        # comparison-level columns only exist once the pair has been through
+        # the model. compare_two_records produces them.
+        def build():
+            scored = self.linker.inference.compare_two_records(records[0], records[1])
+            return self.linker.visualisations.waterfall_chart(scored.as_record_dict())
+
+        return self._chart_html(build)
