@@ -48,6 +48,7 @@ def resolved():
     [
         "get_match_weights_chart",
         "get_parameter_estimates_chart",
+        "get_threshold_selection_chart",
         "get_comparison_viewer_dashboard",
     ],
 )
@@ -63,21 +64,28 @@ def test_chart_renders_html(resolved, getter):
     assert "<" in html, f"{getter} did not return markup"
 
 
-def test_threshold_chart_never_raises(resolved):
-    """A weaker assertion than the others, and deliberately so.
+def test_decimal_values_do_not_break_serialisation(resolved):
+    """Regression guard for a data-dependent failure.
 
-    The match weight histogram fails on some inputs with "Object of type
-    Decimal is not JSON serializable", because DuckDB sometimes types the
-    weight column as DECIMAL and Altair cannot serialise it. It is
-    data-dependent: the same code renders on one dataset and not another.
+    DuckDB aggregations sometimes produce DECIMAL, and Altair's JSON encoder
+    refuses it with "Object of type Decimal is not JSON serializable". The
+    match weight histogram hit this on one dataset and not another, which is
+    worse than failing consistently because it looks like the chart works.
 
-    What must hold either way is the contract. A chart that cannot render
-    returns None, the endpoint answers 409 with something the user can act on,
-    and nothing reaches them as a 500.
+    Chart data is coerced to float before rendering. This fails if that goes.
     """
+    import decimal
+
+    import altair as alt
+    import pandas as pd
+
     service, _ = resolved
-    result = service.get_threshold_selection_chart()
-    assert result is None or "<" in result
+    chart = alt.Chart(
+        pd.DataFrame({"weight": [decimal.Decimal("1.5"), decimal.Decimal("2.5")]})
+    ).mark_bar().encode(x="weight:Q")
+
+    html = service.engine._chart_html(lambda: chart)
+    assert html and "<" in html
 
 
 def test_waterfall_explains_a_real_pair(resolved):

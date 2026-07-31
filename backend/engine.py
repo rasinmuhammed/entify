@@ -23,6 +23,7 @@ follows, and why:
 
 from __future__ import annotations
 
+import decimal
 import logging
 import os
 import re
@@ -1006,6 +1007,59 @@ class EntityResolutionEngine:
 
     # -- charts ------------------------------------------------------------
 
+    @staticmethod
+    def _make_json_serialisable(chart):
+        """Coerce Decimal values in a chart's data to float.
+
+        Altair serialises the chart's data to JSON, and DuckDB aggregations
+        sometimes produce DECIMAL, which the standard encoder refuses with
+        "Object of type Decimal is not JSON serializable". It is data
+        dependent, so the same chart renders on one dataset and fails on
+        another, which is worse than failing consistently.
+
+        Nothing is lost: these are match weights and counts, and float is what
+        the chart plots them as anyway.
+        """
+        def coerce(value):
+            if isinstance(value, decimal.Decimal):
+                return float(value)
+            if isinstance(value, dict):
+                return {k: coerce(v) for k, v in value.items()}
+            if isinstance(value, (list, tuple)):
+                return [coerce(v) for v in value]
+            return value
+
+        data = getattr(chart, "data", None)
+        if data is None:
+            return chart
+
+        # A DataFrame when the chart was built from one.
+        if isinstance(data, pd.DataFrame):
+            if data.empty:
+                return chart
+            converted = data.copy()
+            for column in converted.columns:
+                if converted[column].dtype == object:
+                    sample = converted[column].dropna()
+                    if not sample.empty and isinstance(sample.iloc[0], decimal.Decimal):
+                        converted[column] = converted[column].astype(float)
+            chart.data = converted
+            return chart
+
+        # Altair's InlineData wraps the rows in an InlineDataset, so the list
+        # is not reachable by attribute. Splink's histogram produces this
+        # shape, and it is where the Decimals actually sit. Round-tripping
+        # through to_dict is the supported way to reach them.
+        try:
+            rows = data.to_dict().get("values")
+        except Exception:
+            return chart
+
+        if isinstance(rows, (list, tuple)) and rows:
+            chart.data = pd.DataFrame(coerce(list(rows)))
+
+        return chart
+
     def _chart_html(self, builder) -> Optional[str]:
         """Render a Splink chart to HTML, returning None if unavailable."""
         try:
@@ -1013,7 +1067,7 @@ class EntityResolutionEngine:
             if chart is None:
                 return None
             if hasattr(chart, "to_html"):
-                return chart.to_html()
+                return self._make_json_serialisable(chart).to_html()
             with tempfile.NamedTemporaryFile("w+", suffix=".html", delete=False) as tmp:
                 path = tmp.name
             try:
