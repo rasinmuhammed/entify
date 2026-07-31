@@ -13,6 +13,36 @@ Ministry of Justice's probabilistic record linkage library) and DuckDB.
 
 ---
 
+## Why this exists
+
+Every organisation with a customer list has the same quiet problem. Barbara
+Reddy, Barbra Reddy and Barb Reddy share a phone number and are one person, but
+the database counts three. Nobody notices until the mailing costs triple, or a
+report says forty thousand customers when the real number is thirty-two.
+
+The tooling for this is split in two. At the top are master data management
+platforms with six-figure contracts and dedicated integration teams. At the
+bottom, everyone else writes `drop_duplicates` on an exact match and hopes.
+Between those is a real gap, and the reason it stays open is that the good
+method is genuinely hard to use.
+
+That method is the Fellegi-Sunter model, and Splink implements it well. It is
+also unforgiving: you have to understand blocking rules, expectation
+maximisation, and match weights before you get a useful answer. A data steward
+who knows exactly which records are duplicates cannot use it, and the engineer
+who can use it does not know the data.
+
+Entify is an attempt to close that gap from both ends. It configures itself, so
+you do not have to know what a blocking rule is to get started. And it shows
+its working, so when it claims two records are the same person you can see
+which fields agreed and by how much, rather than being handed a number and
+asked to trust it.
+
+Every accuracy claim in this README is reproducible from the repository. Where
+it fails, that is written down too.
+
+---
+
 ## Quickstart
 
 One command. No accounts, no API keys, no external services, and nothing you

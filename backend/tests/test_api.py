@@ -100,6 +100,12 @@ def test_blocking_suggestions_endpoint_returns_service_payload(monkeypatch):
         "generate_suggestions",
         fake_generate_suggestions,
     )
+    # The endpoint refuses before doing any work when the optional semantic
+    # extras are absent, which is the normal state of a default install. The
+    # service call is stubbed here, so the availability check is what needs
+    # forcing; without this the test passes only on machines that happen to
+    # have torch installed.
+    monkeypatch.setattr(api_module, "semantic_extras_available", lambda: True)
 
     response = client.post(
         "/api/blocking/suggestions",
@@ -112,3 +118,35 @@ def test_blocking_suggestions_endpoint_returns_service_payload(monkeypatch):
     assert response.status_code == 200
     body = response.json()
     assert body["suggestions"][0]["column"] == "city"
+
+
+def test_blocking_suggestions_refuses_when_extras_are_absent(monkeypatch):
+    """The default install has no semantic extras, so this is the common path.
+
+    A missing optional dependency should produce an answer the caller can act
+    on, not a 500 from an ImportError several frames down. The frontend reads
+    the same signal from /api/health to avoid offering a control that cannot
+    work.
+    """
+    monkeypatch.setattr(api_module, "semantic_extras_available", lambda: False)
+
+    response = client.post(
+        "/api/blocking/suggestions",
+        json={"data": "aWQsbmFtZSxjaXR5CjEsQWxpY2UsTG9uZG9uCg==", "columns": ["city"]},
+    )
+
+    assert response.status_code == 501
+    detail = response.json()["detail"]
+    assert "requirements-semantic.txt" in detail, "the fix should be in the message"
+
+
+def test_health_reports_what_this_install_can_do():
+    """An operator should be able to see the capabilities without provoking a
+    failure to discover them."""
+    body = client.get("/api/health").json()
+
+    assert body["status"] == "healthy"
+    assert isinstance(body["semantic_blocking_available"], bool)
+    assert body["memory_limit"].endswith("GB")
+    assert ".csv" in body["supported_formats"]
+    assert ".xlsx" in body["supported_formats"]
