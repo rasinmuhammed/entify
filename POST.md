@@ -1,35 +1,43 @@
-# LinkedIn draft
+# LinkedIn post
 
-Pick one opening, delete the rest. The first is the strongest for a technical
-audience because it leads with a failure rather than a feature.
+Your draft, tightened. Voice kept as yours: the enthusiasm in the opening is
+the best part of it and I have not sanded that off. Typos fixed (Entify not
+Entity, Splink not spline), the middle tightened, and the ending finished
+since yours trailed off mid-sentence.
 
 ---
 
-## Option A: lead with the bug
-
-I spent a while building an entity resolution tool, then tested it against a
-benchmark I did not write. It found a bug in about ninety seconds.
+I got to work on entity resolution recently, using a library called Splink,
+and somewhere in the middle of reading how it actually works I fell properly in
+love with the data science behind it.
 
 Entity resolution is the problem of working out that "Barbara Reddy",
-"Barbra Reddy" and "Barb Reddy" with the same phone number are one customer,
-not three. Most tools hand you a similarity score and ask you to trust it.
+"Barbra Reddy" and "Barb Reddy", all sharing a phone number, are one customer
+and not three.
 
-I built Entify to show its working instead. It reads a CSV, works out what
-each column holds, proposes its own blocking rules and comparisons, and then
-shows the arithmetic behind every decision: a starting assumption that two
-random records are unrelated, then each field pushing the evidence up or down
-until it lands on a probability.
+It sounds simple. It is not. The proper method is a statistical model from
+1969 called Fellegi-Sunter, and Splink implements it beautifully. But using it
+well means understanding blocking rules, expectation maximisation and match
+weights first.
 
-Then I ran it against FEBRL, a published record linkage dataset used widely in
-the literature. Nothing was tuned for it. It crashed immediately, because a
-column of digits arrives from the database as an integer and the string
-similarity functions only accept text. Every dataset I had generated myself
-happened to use string IDs, so my own tests could never have found it.
+That struck me as the wrong way round. The person who knows which records are
+duplicates is usually not the person who can write the code. So I built a
+no-code layer over Splink and called it Entify.
 
-After the fix, configuring itself with no hand-tuning:
+You give it a CSV. It works out what each column holds, proposes its own
+blocking rules and comparisons, and then shows the arithmetic behind every
+decision. Not "92% confident", but: these two emails are identical and that is
+worth 898x the evidence, these phone numbers differ only in formatting and that
+is worth 115x, these first names disagree and that argues against a match by
+3x. You can see exactly why it thinks two rows are the same person.
+
+Then I tested it against FEBRL, a published record linkage dataset used widely
+in the literature, that nothing in my code was tuned for. Fully automatic, no
+hand-tuning:
 
 - Precision 1.000, recall 0.999
-- Remove the near-unique identifier column, which is the honest test: precision
+- Remove the near-unique identifier column, which is the honest test, because
+  any matcher looks good when one column gives the answer away: precision
   1.000, recall 0.987
 - Rename every column to col_1, col_2, col_3 so the headers give nothing away:
   precision 1.000, recall 0.991
@@ -39,59 +47,44 @@ finds less when the data gets thinner. It does not start merging the wrong
 people, which for a deduplication tool is the only failure that actually
 destroys anything.
 
-It also has real limits, which are in the README: it is memory-bound, it
-exports CSV rather than writing back to your CRM, and FEBRL is a structured
-benchmark that plays to this method's strengths. Unstructured product matching
-would likely expose genuine weakness.
+The benchmark also found a bug in about ninety seconds. A column of digits
+comes out of the database as an integer, and the string similarity functions
+only accept text, so it crashed. Every dataset I had generated myself happened
+to use string IDs. My own tests could never have found it. That is the whole
+argument for testing against data you did not write.
 
-Runs locally. No accounts, no API keys, nothing leaves your machine.
+Real limits, all in the README: it is memory-bound, so compute is the main
+ceiling. It exports CSV rather than writing back to your CRM. And FEBRL is a
+structured benchmark that plays to this method's strengths, so unstructured
+matching, product titles and the like, would likely expose genuine weakness.
 
-https://github.com/rasinmuhammed/entify
+Plenty left to build. Cloud execution for larger files, more connectors,
+writing results back to the systems the data came from.
 
----
-
-## Option B: shorter, leads with the product
-
-Most deduplication tools give you a confidence score and ask you to trust it.
-I wanted one that shows its working.
-
-Entify reads a messy CSV, works out what each column holds, configures its own
-matching rules, and then explains every decision. Not "92% match", but: the
-emails agree and that is worth 898x the evidence, the phone numbers differ only
-in formatting and that is worth 115x, the first names disagree and that argues
-against by 3x.
-
-I tested the automatic configuration against FEBRL, a published benchmark
-nothing here was tuned for. With no hand-tuning at all: precision 1.000,
-recall 0.987 once you remove the near-unique identifier that makes any matcher
-look good.
-
-Then I tried to break it. Renamed every column to col_1, col_2, col_3 so the
-headers gave nothing away. Added junk columns. Blanked 35% of the names and
-dates. Precision stayed at 1.000 through all of it. It finds less as the data
-degrades; it does not start merging unrelated people.
-
-Built on Splink 4, the UK Ministry of Justice's record linkage library, and
-DuckDB. Runs on your own machine, so customer data never leaves it.
-
-Open source, with the benchmarks and the limitations both written down.
+It runs entirely on your own machine. No accounts, no API keys, nothing leaves
+your laptop.
 
 https://github.com/rasinmuhammed/entify
 
 ---
 
-## Notes before posting
+## If you want it shorter
 
-- Clean clone verified: fresh clone from GitHub into an empty virtualenv,
-  install, 81 tests passing, server boots, demo endpoint answers. It found one
-  test that only passed where an optional dependency happened to be installed,
-  which is exactly what a new user would have hit.
-- Clerk instance deleted, so the committed key is dead. The Supabase anon key
-  is still in history; it is designed to be public, but rotate it if the
-  project is still live.
-- Do not describe FEBRL as a hard benchmark. It is structured person records,
-  which is the friendly case for probabilistic linkage. Someone who works in
-  this field will know, and the claim inverts if you overstate it.
-- The strongest thing here is not the score. It is that the numbers are
-  reproducible, the caveats are stated, and the benchmark found a bug you then
-  wrote about.
+LinkedIn truncates after roughly three lines, so the first two sentences carry
+everything. The version above is long; it will do well with a technical
+audience and less well with a general one.
+
+To cut it roughly in half, keep the opening two paragraphs, the three benchmark
+bullets, the bug paragraph, and the link. Drop the explanation of
+Fellegi-Sunter and the evidence example.
+
+## Small things
+
+- "1969" is when Fellegi and Sunter published. Worth keeping, it makes the
+  point that this is a well-established method rather than something invented
+  for the project.
+- Do not call FEBRL a hard benchmark. It is structured person records, the
+  friendly case for this method, and someone in the field will know.
+- If anyone asks what makes it different from OpenRefine or pandas: those do
+  exact and fuzzy matching on rules you write. This estimates the probability
+  two records are the same entity from the data itself, and shows the working.

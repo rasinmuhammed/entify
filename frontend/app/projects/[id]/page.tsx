@@ -53,6 +53,8 @@ import { ModelEvaluationDashboard } from "@/components/charts/ModelEvaluationDas
 import { LaboratoryDashboard } from "@/components/laboratory/LaboratoryDashboard"
 import { PhaseGuidanceCard } from "@/components/PhaseGuidanceCard"
 import { SmartBlockingPanel, SemanticSuggestion } from "@/components/blocking/SmartBlockingPanel"
+import { AutoConfigureCard } from "@/components/blocking/AutoConfigureCard"
+import { type AutoConfigResult } from "@/lib/api/splinkClient"
 import { Input } from "@/components/ui/input"
 import {
     Dialog,
@@ -71,6 +73,8 @@ import {
     loadDatasetIntoDuckDb,
     runProjectResolution,
 } from "@/lib/projects/workspaceExecution"
+import { buildCsvFromRows, serializeDuckDbRows } from "@/lib/projects/workspaceData"
+import { quoteIdent } from "@/lib/sql"
 
 
 const PHASES = [
@@ -376,6 +380,75 @@ export default function ProjectPage() {
         () => getWorkspaceColumns(dataColumns, activeDataset?.columns, previewData),
         [activeDataset?.columns, dataColumns, previewData]
     )
+
+
+    /**
+     * Pull the working table out of the in-browser database as CSV.
+     *
+     * Auto-configuration runs on the backend because it needs the same
+     * profiling the matcher uses, so the data has to make the trip. Same table
+     * resolution the pipeline uses, so what gets configured is what gets
+     * matched.
+     */
+    const getCurrentTableCsv = useCallback(async () => {
+        if (!duckDB) throw new Error("The in-browser database is still starting.")
+
+        const conn = await duckDB.connect()
+        try {
+            const table = activeDataset?.table_name
+                || activeDataset?.name?.replace(/[^a-zA-Z0-9_]/g, "_")
+            if (!table) throw new Error("No dataset is loaded.")
+
+            const result = await conn.query(`SELECT * FROM ${quoteIdent(table)}`)
+            const rows = serializeDuckDbRows(result.toArray() as never)
+            if (!rows.length) throw new Error("That table has no rows.")
+            return buildCsvFromRows(rows).csvData
+        } finally {
+            await conn.close()
+        }
+    }, [duckDB, activeDataset])
+
+    /**
+     * Apply an inferred configuration to the workspace.
+     *
+     * Everything it sets is a normal editable value, not a locked one. The
+     * point is to remove the blank page, not to take the decisions away: a
+     * user who disagrees with a blocking rule can change it immediately.
+     */
+    const applyAutoConfig = useCallback((config: AutoConfigResult) => {
+        setBlockingRules(config.settings.blocking_rules_to_generate_predictions ?? [])
+
+        const inferred = (config.settings.comparisons ?? [])
+            .map((comparison) => {
+                const column = comparison.output_column_name as string | undefined
+                if (!column) return null
+                const method = comparison.comparison_library_name as string | undefined
+                return {
+                    column,
+                    // The builder speaks in method names; the API speaks in
+                    // Splink library names. Anything unrecognised falls back to
+                    // exact, which is the safe default: it under-matches rather
+                    // than merging records it should not.
+                    method: method === "jaro_winkler_at_thresholds" ? "jaro_winkler"
+                        : method === "jaccard_at_thresholds" ? "jaccard"
+                        : method === "levenshtein_at_thresholds" ? "levenshtein"
+                        : "exact",
+                    threshold: (comparison.threshold as number | undefined) ?? 0.9,
+                } as ComparisonConfig
+            })
+            .filter(Boolean) as ComparisonConfig[]
+
+        setComparisons(inferred)
+        setThreshold(config.threshold)
+
+        if (config.primary_key_column) {
+            setPrimaryKey(config.primary_key_column)
+            setIsPrimaryKeyConfirmed(true)
+        }
+
+        setPageError(null)
+        setActivePhase("comparisons")
+    }, [])
 
     const handleRunMatch = async () => {
         if (!activeDataset || !duckDB) {
@@ -736,6 +809,15 @@ export default function ProjectPage() {
                                             <PanelTitle>Blocking Configuration</PanelTitle>
                                         </PanelHeader>
                                         <PanelContent className="space-y-6">
+                                            {/* First, because it is the path most
+                                                people should take. Writing rules by
+                                                hand is the fallback, not the
+                                                default. */}
+                                            <AutoConfigureCard
+                                                disabled={!duckDB || !isDataLoaded}
+                                                getCsv={getCurrentTableCsv}
+                                                onApply={applyAutoConfig}
+                                            />
                                             <BlockingRuleBuilder
                                                 columns={workspaceColumns}
                                                 onRulesChange={setBlockingRules}

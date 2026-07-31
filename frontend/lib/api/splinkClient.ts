@@ -132,3 +132,64 @@ export async function profileDataset(file: File) {
 export async function checkHealth() {
     return fetchApiJson('/api/health')
 }
+
+/**
+ * Ask the backend to infer a complete matching configuration.
+ *
+ * This is the capability the whole project is built around, and until now it
+ * existed only as an endpoint: the workspace made you write blocking rules by
+ * hand, which is exactly the barrier auto-configuration was meant to remove.
+ *
+ * Returns the primary key, blocking rules, comparisons and a threshold, each
+ * with the reason it was chosen, so the UI can show the decisions rather than
+ * silently applying them.
+ */
+export type AutoConfigColumn = {
+    name: string
+    role: string
+    distinct: number
+    empty_ratio: number
+    uniqueness: number
+    used_for_matching: boolean
+    reason: string
+}
+
+export type AutoConfigResult = {
+    primary_key_column: string | null
+    threshold: number
+    estimated_pairs: number
+    notes: string[]
+    columns: AutoConfigColumn[]
+    settings: {
+        blocking_rules_to_generate_predictions: string[]
+        comparisons: Array<Record<string, unknown>>
+        unique_id_column_name?: string
+    }
+}
+
+export async function autoConfigure(
+    csvData: string,
+    threshold: number = 0.95,
+    tableName: string = "input_data"
+): Promise<AutoConfigResult> {
+    const formData = new FormData()
+    // Sent as a file rather than base64: the endpoint takes an upload, and a
+    // Blob avoids building a second copy of the data as a string.
+    formData.append("file", new Blob([csvData], { type: "text/csv" }), "data.csv")
+    formData.append("threshold", threshold.toString())
+    formData.append("table_name", tableName)
+
+    const response = await fetch(buildApiUrl("/api/autoconfig"), {
+        method: "POST",
+        body: formData,
+    })
+
+    if (!response.ok) {
+        const detail = await response.json().catch(() => null)
+        throw new Error(
+            detail?.detail ?? `Auto-configuration failed (${response.status})`
+        )
+    }
+
+    return response.json()
+}
