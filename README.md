@@ -41,6 +41,12 @@ asked to trust it.
 Every accuracy claim in this README is reproducible from the repository. Where
 it fails, that is written down too.
 
+Verified from a clean clone into an empty virtualenv, not from the working
+copy it was developed in: install, 81 tests, server boot. That check found a
+test which only passed on machines that happened to have an optional
+dependency installed, which is exactly the failure a new user would have hit
+first.
+
 ---
 
 ## Quickstart
@@ -58,16 +64,45 @@ customer data to it.
 
 ### Running it without Docker
 
+Needs Python 3.11 or newer and Node 20 or newer. Two terminals.
+
 ```bash
-cd backend && pip install -r requirements.txt && uvicorn api:app --port 8000
+cd backend
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/uvicorn api:app --port 8000
 ```
 
 ```bash
-cd frontend && npm install && npm run dev
+cd frontend
+npm install && npm run dev
 ```
 
 The app starts in **demo mode**: no sign-in, and projects persist to browser
-localStorage.
+localStorage. There is nothing to configure to reach this state, which is
+deliberate. Evaluating a matching tool should not begin with provisioning a
+database.
+
+To check the install is sound:
+
+```bash
+cd backend && .venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python -m pytest tests/ -q
+```
+
+That runs 81 tests, including the external benchmark below. It takes about
+fifteen seconds.
+
+### First run, start to finish
+
+1. Open http://localhost:3000 and press **Or use the sample dataset**. This
+   generates about 4,700 messy customer records with known duplicates and
+   loads them, so you do not need to find a file first.
+2. From the Data Vault, press **Create Project** on the dataset.
+3. Confirm the primary key it suggests, then work down the numbered phases in
+   the sidebar. Each one is gated on the previous, and a locked step tells you
+   what it is waiting for.
+4. Press **Run Pipeline**, then open **Results** to see the clusters, the
+   evidence behind each match, and the export.
 
 ### Optional extras
 
