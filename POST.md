@@ -82,11 +82,13 @@ https://github.com/rasinmuhammed/entify
 
 ## Notes before posting
 
-- Verify a clean clone installs. `requirements.txt` changed a lot recently and
-  nobody has run it from scratch. If the first person to try it hits a missing
-  dependency, that is the comment everyone reads.
-- Rotate the Clerk and Supabase keys first. They were committed and the repo is
-  public.
+- Clean clone verified: fresh clone from GitHub into an empty virtualenv,
+  install, 81 tests passing, server boots, demo endpoint answers. It found one
+  test that only passed where an optional dependency happened to be installed,
+  which is exactly what a new user would have hit.
+- Clerk instance deleted, so the committed key is dead. The Supabase anon key
+  is still in history; it is designed to be public, but rotate it if the
+  project is still live.
 - Do not describe FEBRL as a hard benchmark. It is structured person records,
   which is the friendly case for probabilistic linkage. Someone who works in
   this field will know, and the claim inverts if you overstate it.
